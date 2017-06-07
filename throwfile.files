@@ -1,2 +1,9 @@
 include/mongoose.h
 src/throwfile.cpp
+src/mongoose.c
+src/Makefile
+include/restclient.h
+src/restclient.cpp
+include/connector.h
+src/connector.cpp
+include/customtypes.h

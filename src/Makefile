@@ -1,12 +1,12 @@
 # Dependencies,
 # Ubuntu: apt-get install -y libssl-dev
 
-SOURCES    = throwfile.cpp mongoose.c
+SOURCES    =  mongoose.c restclient.cpp connector.cpp throwfile.cpp
 LIBRARIES  = -lssl -lcrypto
 INCLUDE    = -I../include
 CXXFLAGS   = -pthread -DMG_ENABLE_SSL -Wno-comment -Wno-deprecated-declarations -std=c++0x
-CXX		   = g++
-CC		   = gcc 
+CXX        = g++
+CC         = gcc
 
 # mongoose:
 # 	@echo "...mongoose"
@@ -16,7 +16,7 @@ CC		   = gcc
 throwfile:
 	@echo "...throwfile"
 	@mkdir -p ../bin
-	${CXX} ${INCLUDE} ${SOURCES} -o ../bin/throwfile ${CXXFLAGS} ${LIBRARIES} 
+	${CXX} ${SOURCES} -o ../bin/throwfile ${INCLUDE} ${CXXFLAGS} ${LIBRARIES}
 
 clean:
 	@echo "...clean"
