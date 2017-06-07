@@ -1,0 +1,4 @@
+#ifndef CUSTOMTYPES_H
+#define CUSTOMTYPES_H
+
+#endif // CUSTOMTYPES_H
