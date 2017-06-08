@@ -1,6 +1,7 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <map>
 
 #include "mongoose.h"
 #include "customtypes.h"
@@ -17,7 +18,7 @@ restclient::restclient() : handler_flag (false) {
     this->connection_manager = connection_manager;
 }
 
-void restclient::request(const mg_event_handler_t& handler, string endpoint, vector<string> headers, string postdata) {
+completion_t restclient::request(const mg_event_handler_t& handler, string endpoint, vector<string> headers, string postdata) {
     this->handler_flag = false;
 
     string extra_headers;
@@ -37,7 +38,23 @@ void restclient::request(const mg_event_handler_t& handler, string endpoint, vec
     while (!this->handler_flag)
         mg_mgr_poll(&this->connection_manager, 1000);
 
-    cout << this->handler_response.response << endl;
+    // return completion with the data
+    // cout << this->handler_response.response << endl;
+
+    // process the response
+
+    bool valid;
+    string response;
+
+    if ((valid = this->handler_response.code == 200)) {
+        map<string,string> parsed = basic_json_parser(this->handler_response.response);
+        valid = parsed["access_token"];
+        response = parsed["access_token"] ? parsed["access_token"] : parsed["error_description"];
+    } else {
+        response = this->handler_response.message;
+    }
+
+    return completion_t(valid, response);
 }
 
 void restclient::handler(connection_t* nc, int ev, void* ev_data) {

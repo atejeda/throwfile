@@ -19,7 +19,7 @@ public:
     bool handler_flag2 = false;
     restclient();
     restclient(const connection_manager_t&);
-    void request(const mg_event_handler_t&, string, vector<string>, string);
+    completion_t request(const mg_event_handler_t&, string, vector<string>, string);
     void handler(connection_t*, int, void*);
     ~restclient();
 };

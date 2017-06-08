@@ -7,3 +7,7 @@ src/restclient.cpp
 include/connector.h
 src/connector.cpp
 include/customtypes.h
+include/tokenmgr.h
+src/tokenmgr.cpp
+include/utils.h
+src/utils.cpp
