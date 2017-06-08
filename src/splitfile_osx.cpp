@@ -5,10 +5,10 @@
 
 using namespace std;
 
-// 150MB in KB
-// http://www.matisse.net/bitcalc/?input_amount=150&input_units=megabits&notation=legacy
-#define CHUNK2 157286400
-#define CHUNK 134217728
+// https://wiki.ubuntu.com/UnitsPolicy
+#define KILO 1000
+#define MEGS 150
+#define MB150 (1L * KILO * KILO * MEGS)
 
 void write_file(const string name, const char* buffer, const long size) {
     ofstream file("/home/atejeda/data0." + name, ios::out|ios::binary);
@@ -20,6 +20,7 @@ void write_file(const string name, const char* buffer, const long size) {
 
 // rm -f splitfile && g++ splitfile_osx.cpp -o splitfile && ./splitfile
 int main(int argc, char* argv[]) {
+    const long xMB = MB150;
     
     // dd if=/dev/zero of=~/1GB.dat bs=100M count=10
     // dd if=/dev/zero of=~/1GB.dat bs=262144000 count=4
@@ -35,21 +36,20 @@ int main(int argc, char* argv[]) {
     long size = iffile.tellg();
     iffile.seekg(0, ios::beg);
 
-    int pieces = size / CHUNK;
-    int remain = size % CHUNK;
+    int pieces = size / xMB;
+    int remain = size % xMB;
 
     cout << "size " << size << " bytes" << endl;
-    cout << pieces << " pieces of " << CHUNK << " bytes" << endl;
+    cout << pieces << " pieces of " << xMB << " bytes" << endl;
     cout << "a remaining of " << remain << " bytes" << endl;
 
     char* block_mem;
-    long lower, upper, block_size;
-    long sum = 0;
+    long lower, upper, block_size, sum = 0;
 
     for (int i = 0; i <= pieces; i++) {
-        lower = i * CHUNK;
-        upper = ((i + 1) * CHUNK) - 1;
-        block_size = i < pieces ? CHUNK : remain;
+        lower = i * xMB;
+        upper = ((i + 1) * xMB) - 1;
+        block_size = i < pieces ? xMB : remain;
         sum += block_size;
 
         block_mem = new char[block_size];
@@ -60,7 +60,6 @@ int main(int argc, char* argv[]) {
     }
 
     cout << "total sum = " << size - sum << endl;
-    cout << "file position pointer is at the end? : " << ((iffile.tellg() == ios::end) ? "yes" : "no") << endl;
     iffile.close();
 
     return 0;
