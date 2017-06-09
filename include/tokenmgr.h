@@ -5,9 +5,9 @@
 #include "restclient.h"
 
 class tokenmgr {
-private:
+  private:
     //
-public:
+  public:
     tokenmgr();
     completion_t get_from_file();
     completion_t get_from_request(const string);

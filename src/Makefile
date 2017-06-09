@@ -1,11 +1,11 @@
 # Dependencies,
-# Ubuntu: apt-get install -y libssl-dev
+# Ubuntu: apt-get install -y libssl-dev ccache
 
-SOURCES    =  mongoose.c restclient.cpp connector.cpp tokenmgr.cpp throwfile.cpp
+SOURCES    =  mongoose.c utils.cpp restclient.cpp connector.cpp tokenmgr.cpp throwfile.cpp
 LIBRARIES  = -lssl -lcrypto
 INCLUDE    = -I../include
 CXXFLAGS   = -pthread -DMG_ENABLE_SSL -Wno-comment -Wno-deprecated-declarations -std=c++0x
-CXX        = g++
+CXX        = ccache g++
 CC         = gcc
 
 # mongoose:

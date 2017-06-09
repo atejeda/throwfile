@@ -1,16 +1,11 @@
 #include "tokenmgr.h"
+#include "connector.h"
 #include "customtypes.h"
 #include "restclient.h"
-#include "connector.h"
 
-tokenmgr::tokenmgr() {
+tokenmgr::tokenmgr() { auto handler = connector::token_handler; }
 
-    auto handler = connector::token_handler;
-}
-
-completion_t tokenmgr::get_from_file() {
-
-}
+completion_t tokenmgr::get_from_file() {}
 
 completion_t tokenmgr::get_from_request(const string auth) {
     restclient* rest_client = new restclient();
@@ -22,16 +17,13 @@ completion_t tokenmgr::get_from_request(const string auth) {
     vector<string> headers;
     string postdata;
 
-    rest_client->request(handler, endpoint, headers, postdata);
+    return rest_client->request(handler, endpoint, headers, postdata);
 }
 
-tokenmgr::~tokenmgr() {
-    delete this->rest_client;
-}
+tokenmgr::~tokenmgr() {}
 
-//auto handler = connector::token_handler;
-//string endpoint = "https://www.google.com";
-//vector<string> headers;
-//string postdata;
-//token_client->request(handler, endpoint, headers, postdata);
-
+// auto handler = connector::token_handler;
+// string endpoint = "https://www.google.com";
+// vector<string> headers;
+// string postdata;
+// token_client->request(handler, endpoint, headers, postdata);

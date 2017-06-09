@@ -5,10 +5,10 @@
 #include "restclient.h"
 
 class connector {
-public:
+  public:
     // token
-    static restclient* token_client;
-    static void token_handler(connection_t*, int, void*);
+    static restclient *token_client;
+    static void token_handler(connection_t *, int, void *);
 };
 
 #endif // CONNECTOR_H

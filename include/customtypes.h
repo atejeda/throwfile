@@ -14,8 +14,7 @@ struct handler_response {
     string response;
 };
 
-template<class T>
-struct completion {
+template <class T> struct completion {
     bool completion;
     T body;
 };
