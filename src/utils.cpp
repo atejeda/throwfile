@@ -6,6 +6,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fstream>
 #include <string.h>
 
 #include <sys/stat.h>
@@ -16,23 +17,37 @@
 
 using namespace std;
 
-void utils::split_file(const string path, const vector<const char*>& holder) {
-    const long chunk_size = MB150;
-    // dd if=/dev/zero of=~/1GB.dat bs=100M count=10
-    // dd if=/dev/zero of=~/1GB.dat bs=262144000 count=4
+void utils::write_file(const string name, const char* buffer, const long size) {
+    ofstream file("/home/atejeda/data0." + name, ios::out | ios::binary);
+    if (file.is_open() && file.good()) {
+        file.write(buffer, size);
+        file.close();
+    }
+}
+
+// return size of the last one !
+long utils::split_file(const string path, vector<const char*>** holder) {
+    (*holder) = new vector<const char*>();
+    auto holder_v = (*holder);
 
     ifstream file;
     file.open(path, ios::in | ios::binary | ios::ate);
     if (!file.is_open() || !file.good()) {
         cout << "there's some error opening file..." << endl;
-        return;
+        return -1;
     }
+
+    // dd if=/dev/zero of=~/1GB.dat bs=100M count=10
+    // dd if=/dev/zero of=~/1GB.dat bs=262144000 count=4
 
     long size = file.tellg();
     file.seekg(0, ios::beg);
 
-    int pieces = size / chunk_size;
-    int remain = size % chunk_size;
+    const long chunk_size = MB150;
+    const long pieces = size / chunk_size;
+    const long remain = size % chunk_size;
+
+    holder_v->reserve(pieces + 1);
 
     long lower, upper, block_size, sum = 0;
 
@@ -41,13 +56,14 @@ void utils::split_file(const string path, const vector<const char*>& holder) {
         upper = ((i + 1) * chunk_size) - 1;
         block_size = i < pieces ? chunk_size : remain;
         sum += block_size;
-
         char* block_mem = new char[block_size];
         file.read(block_mem, block_size);
-        // holder.push_back(nullptr);
+        holder_v->push_back(block_mem);
     }
 
     file.close();
+
+    return remain;
 }
 
 map<string, string> utils::quick_parse(const string& json) {
@@ -69,7 +85,7 @@ map<string, string> utils::quick_parse(const string& json) {
     for (int i = 0; i < json.size(); i++) {
         char c = json[i];
 
-        if (isspace(c) || c == '{' || c == ',' || c == ':' || c == '}')
+        if ((isspace(c) || c == '{' || c == ',' || c == ':' || c == '}') && !start)
             continue;
 
         if (c == '"' && current[current.size() - 1] != '\\') {

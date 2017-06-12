@@ -10,7 +10,8 @@ class tokenmgr {
   public:
     tokenmgr();
     completion_t get_from_file();
-    completion_t get_from_request(const string);
+    completion_t set_to_file(const string);
+    completion_t get_from_request(const string, const string, const string);
     ~tokenmgr();
 };
 

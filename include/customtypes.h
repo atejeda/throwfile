@@ -2,6 +2,8 @@
 #define CUSTOMTYPES_H
 
 #include <string>
+#include <map>
+
 #include "mongoose.h"
 
 using namespace std;
@@ -26,5 +28,6 @@ typedef struct mg_connection connection_t;
 typedef struct http_message http_message_t;
 typedef struct handler_response handler_response_t;
 typedef struct completion<string> completion_t;
+typedef struct completion<map<string, string>> completion_map_t;
 
 #endif // CUSTOMTYPES_H

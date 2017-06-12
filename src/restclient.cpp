@@ -19,10 +19,11 @@ restclient::restclient() : handler_flag(false) {
     this->connection_manager = connection_manager;
 }
 
-completion_t restclient::request(const mg_event_handler_t& handler,
-                                 const string url_s,
+completion_map_t restclient::request(const string url_s,
                                  const vector<string> headers_v,
                                  const string post_s) {
+    restclient::static_client = this;
+
     this->handler_flag = false;
 
     string headers_s;
@@ -36,44 +37,39 @@ completion_t restclient::request(const mg_event_handler_t& handler,
     const char* headers = headers_s.size() ? headers_s.c_str() : nullptr;
     const char* post = post_s.size() ? post_s.c_str() : nullptr;
 
-    mg_connect_http(&this->connection_manager, handler, url, headers, post);
+//    cout << "url    : " << url << endl;
+//    cout << "header : " << headers << endl;
+//    cout << "post   : " << post << endl;
+
+    mg_connect_http(&this->connection_manager, restclient::static_handler, url, headers,
+                    post);
 
     while (!this->handler_flag)
         mg_mgr_poll(&this->connection_manager, 1000);
 
     // process the response
 
-    bool isvalid, haserror, hastoken;
-    string res;
+    completion_map_t res;
+
+    auto resdata = this->handler_res.response;
+    map<string, string> restdict;
 
     try {
-        if ((isvalid = this->handler_res.code == 200)) {
-            auto json = this->handler_res.response;
-            map<string, string> dict = utils::quick_parse(json);
-
-            hastoken = dict.find("access_token") != dict.end();
-            haserror = dict.find("error_description") != dict.end();
-
-            if (hastoken) {
-                res = dict["access_token"];
-                isvalid = true;
-            } else if (haserror) {
-                res = dict["error_description"];
-                isvalid = false;
-            } else {
-                isvalid = false;
-                res = this->handler_res.message;
-            }
-
-        } else {
-            res = this->handler_res.message;
-        }
+        restdict = utils::quick_parse(resdata);
+        res.completion = restdict.find("error_description") == restdict.end();
+        res.body = restdict;
     } catch (...) {
-        isvalid = false;
-        res = this->handler_res.message;
+        restdict["error_description"] = "there's an error : \n" + resdata;
+        res.completion = false;
+        res.body = restdict;
     }
 
-    return completion_t{isvalid, res};
+    return res;
+}
+
+restclient* restclient::static_client;
+void restclient::static_handler(connection_t* nc, int ev, void* ev_data) {
+    restclient::static_client->handler(nc, ev, ev_data);
 }
 
 void restclient::handler(connection_t* nc, int ev, void* ev_data) {

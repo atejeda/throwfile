@@ -16,12 +16,15 @@ class restclient {
     handler_response_t handler_res;
 
   public:
+    static restclient* static_client;
+
     restclient();
     restclient(const connection_manager_t&);
-    completion_t request(const mg_event_handler_t&, const string,
-                         const vector<string>, const string);
+    completion_map_t request(const string, const vector<string>, const string);
     void handler(connection_t*, int, void*);
     ~restclient();
+    // static
+    static void static_handler(connection_t*, int, void*);
 };
 
 #endif // RESTCLIENT_H

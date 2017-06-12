@@ -7,14 +7,14 @@
 #include <vector>
 
 #define KILO 1000
-#define MEGS 150
-#define MB150 (1L * KILO * KILO * MEGS)
+#define MB150 (1L * KILO * KILO * 150)
 
 using namespace std;
 
 class utils {
   public:
-    static void split_file(const string, const vector<const char*>&);
+    static void write_file(const string, const char*, const long);
+    static long split_file(const string, vector<const char*>**);
     static map<string, string> quick_parse(const string&);
     static void ls(const char*, const string);
 };
