@@ -25,7 +25,6 @@ void utils::write_file(const string name, const char* buffer, const long size) {
     }
 }
 
-// return size of the last one !
 long utils::split_file(const string path, vector<const char*>** holder) {
     (*holder) = new vector<const char*>();
     auto holder_v = (*holder);
