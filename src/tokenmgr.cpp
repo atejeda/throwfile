@@ -40,9 +40,10 @@ completion_t tokenmgr::set_to_file(const string token) {
     return res;
 }
 
-completion_t tokenmgr::get_from_request(const string app_auth, const string app_key,
+completion_t tokenmgr::get_from_request(restclient* rest_client,
+                                        const string app_auth,
+                                        const string app_key,
                                         const string app_secret) {
-    restclient* rest_client = new restclient();
 
     string endpoint = "https://api.dropboxapi.com/oauth2/token";
 
@@ -53,32 +54,73 @@ completion_t tokenmgr::get_from_request(const string app_auth, const string app_
     postdata += string("&grant_type=authorization_code");
     postdata += "&client_id=" + app_key + "&client_secret=" + app_secret;
 
-    completion_map_t resreq = rest_client->request(endpoint, headers, postdata);
+    completion_map_t res = rest_client->request(endpoint, headers, postdata);
 
-    completion_t res;
+    completion_t completion;
 
-    map<string, string> dict = resreq.body;
+    map<string, string> dict = res.body;
     bool istoken = dict.find("access_token") != dict.end();
     bool iserror = dict.find("error_description") != dict.end();
 
-    if ((res.completion = resreq.completion)) {
-        if ((res.completion = istoken)) {
-            res.body = dict["access_token"];
+    if ((completion.completion = res.completion)) {
+        if ((completion.completion = istoken)) {
+            completion.body = dict["access_token"];
         } else if (iserror) {
-            res.completion = false;
-            res.body = dict["error_description"];
+            completion.completion = false;
+            completion.body = dict["error_description"];
         } else {
-            res.body = "unknown error (1)";
+            completion.body = "unknown error (1)";
         }
     } else {
         if (iserror) {
-            res.body = dict["error_description"];
+            completion.body = dict["error_description"];
         } else {
-            res.body = "unknown error (2)";
+            completion.body = "unknown error (2)";
         }
     }
 
-    return res;
+    return completion;
+}
+
+completion_t tokenmgr::validate(restclient* rest_client, const string token) {
+    string endpoint = "https://api.dropboxapi.com/1/account/info";
+
+    vector<string> headers;
+    headers.push_back("Authorization: Bearer " + token);
+
+    string postdata;
+    completion_map_t res = rest_client->request(endpoint, headers, postdata);
+
+    completion_t completion;
+
+    map<string, string> dict = res.body;
+    bool istoken = dict.find("display_name") != dict.end();
+    bool iserror1 = dict.find("error_description") != dict.end();
+    bool iserror2 = dict.find("error") != dict.end();
+
+    if ((completion.completion = res.completion)) {
+        if ((completion.completion = istoken)) {
+            completion.body = dict["display_name"];
+        } else if (iserror1) {
+            completion.completion = false;
+            completion.body = dict["error_description"];
+        } else if (iserror2) {
+            completion.completion = false;
+            completion.body = dict["error"];
+        } else {
+            completion.body = "unknown error (1)";
+        }
+    } else {
+        if (iserror1) {
+            completion.body = dict["error_description"];
+        } else if (iserror2) {
+            completion.body = dict["error"];
+        } else {
+            completion.body = "unknown error (2)";
+        }
+    }
+
+    return completion;
 }
 
 tokenmgr::~tokenmgr() {}

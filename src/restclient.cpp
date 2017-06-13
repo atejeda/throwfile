@@ -20,8 +20,8 @@ restclient::restclient() : handler_flag(false) {
 }
 
 completion_map_t restclient::request(const string url_s,
-                                 const vector<string> headers_v,
-                                 const string post_s) {
+                                     const vector<string> headers_v,
+                                     const string post_s) {
     restclient::static_client = this;
 
     this->handler_flag = false;
@@ -41,8 +41,8 @@ completion_map_t restclient::request(const string url_s,
 //    cout << "header : " << headers << endl;
 //    cout << "post   : " << post << endl;
 
-    mg_connect_http(&this->connection_manager, restclient::static_handler, url, headers,
-                    post);
+    mg_connect_http(&this->connection_manager, restclient::static_handler, url,
+                    headers, post);
 
     while (!this->handler_flag)
         mg_mgr_poll(&this->connection_manager, 1000);
@@ -52,6 +52,7 @@ completion_map_t restclient::request(const string url_s,
     completion_map_t res;
 
     auto resdata = this->handler_res.response;
+//    cout << resdata << endl;
     map<string, string> restdict;
 
     try {
