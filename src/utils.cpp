@@ -8,6 +8,8 @@
 #include <errno.h>
 #include <fstream>
 #include <string.h>
+#include <limits.h>
+#include <stdlib.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -17,8 +19,9 @@
 
 using namespace std;
 
-void utils::write_file(const string name, const char* buffer, const long size) {
-    ofstream file("/home/atejeda/data0." + name, ios::out | ios::binary);
+void utils::write_file(const string file_name, const char* buffer,
+                       const long size) {
+    ofstream file("/home/atejeda/data0." + file_name, ios::out | ios::binary);
     if (file.is_open() && file.good()) {
         file.write(buffer, size);
         file.close();
@@ -84,7 +87,8 @@ map<string, string> utils::quick_parse(const string& json) {
     for (int i = 0; i < json.size(); i++) {
         char c = json[i];
 
-        if ((isspace(c) || c == '{' || c == ',' || c == ':' || c == '}') && !start)
+        if ((isspace(c) || c == '{' || c == ',' || c == ':' || c == '}') &&
+            !start)
             continue;
 
         if (c == '"' && current[current.size() - 1] != '\\') {
@@ -107,35 +111,50 @@ map<string, string> utils::quick_parse(const string& json) {
     return data;
 }
 
-void utils::ls(const char* path, const string parent = "") {
+void utils::ls(const string path, vector<throwfile_path_t>* files_path,
+               const string parent) {
+    // return a completion here
+    //  check for errors, realpath
+
     DIR* directory;
-    if ((directory = opendir(path)) == NULL) {
-        cout << "throwfile: cannot access " << path << ": " << strerror(errno)
-             << endl;
+
+    if ((directory = opendir(path.c_str())) == NULL) {
+        cout << "throwfile: cannot access ";
+        cout << path << ": " << strerror(errno) << endl;
         return;
     }
 
     struct dirent* entry;
     struct stat entry_stat;
-    string name;
-    string fullpath;
+
+    string file_name;
+
+    string root = static_cast<string>(basename(path.c_str()));
+    string system_path;
+    string dropbox_path;
+
+    // throwfile_path_t
 
     while ((entry = readdir(directory))) {
-        name = entry->d_name;
-        fullpath = string(path) + "/" + name;
+        file_name = entry->d_name;
+        system_path = string(path + '/' + file_name);
+        dropbox_path = string(parent + '/' + root + '/' + file_name);
 
-        stat(fullpath.c_str(), &entry_stat);
+        stat(system_path.c_str(), &entry_stat);
 
         if (S_ISLNK(entry_stat.st_mode)) {
-            continue; // symlinks not supported
+            continue;
         } else if (S_ISREG(entry_stat.st_mode)) {
-            cout << parent << "/" << name << endl;
+            float file_size = entry_stat.st_size;
+            files_path->push_back(throwfile_path_t{
+                system_path, dropbox_path, static_cast<long>(file_size)});
         } else if (S_ISDIR(entry_stat.st_mode)) {
-            if (name == ".." || name == ".")
+            if (file_name == ".." || file_name == ".")
                 continue;
-            ls(fullpath.c_str(), parent + "/" + name);
+            ls(system_path, files_path, parent + '/' + root);
         }
     }
 
     closedir(directory);
+//    delete resolved_path;
 }

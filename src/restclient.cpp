@@ -37,9 +37,9 @@ completion_map_t restclient::request(const string url_s,
     const char* headers = headers_s.size() ? headers_s.c_str() : nullptr;
     const char* post = post_s.size() ? post_s.c_str() : nullptr;
 
-//    cout << "url    : " << url << endl;
-//    cout << "header : " << headers << endl;
-//    cout << "post   : " << post << endl;
+    //    cout << "url    : " << url << endl;
+    //    cout << "header : " << headers << endl;
+    //    cout << "post   : " << post << endl;
 
     mg_connect_http(&this->connection_manager, restclient::static_handler, url,
                     headers, post);
@@ -52,7 +52,7 @@ completion_map_t restclient::request(const string url_s,
     completion_map_t res;
 
     auto resdata = this->handler_res.response;
-//    cout << resdata << endl;
+    //    cout << resdata << endl;
     map<string, string> restdict;
 
     try {

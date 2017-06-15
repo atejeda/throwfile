@@ -66,6 +66,11 @@ string get_token(bool force_request = false) {
 
 int main(int argc, char* argv[]) {
 
+    // validate first argument
+    // resolve the path by using
+    // http://man7.org/linux/man-pages/man3/realpath.3.html
+    // validate dropbox destination (name)
+
     string token;
     completion_t completion_token;
     completion_t completion_validation;
@@ -90,6 +95,43 @@ int main(int argc, char* argv[]) {
             break;
         }
     }
+
+    const string path = argv[1]; // "/home/atejeda/Downloads";
+    vector<throwfile_path_t>* files_path = new vector<throwfile_path_t>();
+
+    cout << endl << "Listing the files, this may take a while depending ";
+    cout << "how many files (recursively) the directory contains... " << endl;
+
+    utils::ls(path, files_path);
+
+    cout << endl << files_path->size() << " Files to throw:" << endl;
+    cout << "(symlinks ignored)" << endl << endl;
+
+    long total_size = 0;
+
+    for (int i = 0; i < files_path->size(); i++) {
+        long file_size;
+        string file_size_unit;
+
+        long reported_file_size = files_path->at(i).file_size;
+        total_size += reported_file_size;
+
+        if ((file_size = reported_file_size / 1000000) > 0) {
+            file_size_unit = "MB";
+        } else if ((file_size = reported_file_size / 1000) > 0) {
+            file_size_unit = "KB";
+        } else {
+            file_size = reported_file_size;
+            file_size_unit = "B";
+        }
+
+        cout << "(" << file_size << ") " << file_size_unit << endl;
+        cout << "from local : " << files_path->at(i).system_path << endl;
+        cout << "to dropbox : " << files_path->at(i).dropbox_path << endl;
+        cout << endl;
+    }
+
+    cout << endl << total_size / 1000000 << " MB total" << endl << endl;
 
     return EXIT_SUCCESS;
 }
