@@ -68,7 +68,6 @@ int main(int argc, char* argv[]) {
 
     // validate first argument
     // resolve the path by using
-    // http://man7.org/linux/man-pages/man3/realpath.3.html
     // validate dropbox destination (name)
 
     string token;
@@ -131,6 +130,7 @@ int main(int argc, char* argv[]) {
         cout << endl;
     }
 
+    // in GB, MB, KB, B
     cout << endl << total_size / 1000000 << " MB total" << endl << endl;
 
     return EXIT_SUCCESS;

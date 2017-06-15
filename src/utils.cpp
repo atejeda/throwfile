@@ -7,9 +7,9 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fstream>
-#include <string.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -113,12 +113,16 @@ map<string, string> utils::quick_parse(const string& json) {
 
 void utils::ls(const string path, vector<throwfile_path_t>* files_path,
                const string parent) {
-    // return a completion here
+
+    // return a completion
+
     //  check for errors, realpath
+    char resolved_path[PATH_MAX];
+    realpath(path.c_str(), resolved_path);
 
     DIR* directory;
 
-    if ((directory = opendir(path.c_str())) == NULL) {
+    if ((directory = opendir(resolved_path)) == NULL) {
         cout << "throwfile: cannot access ";
         cout << path << ": " << strerror(errno) << endl;
         return;
@@ -129,7 +133,7 @@ void utils::ls(const string path, vector<throwfile_path_t>* files_path,
 
     string file_name;
 
-    string root = static_cast<string>(basename(path.c_str()));
+    string file_root = static_cast<string>(basename(resolved_path));
     string system_path;
     string dropbox_path;
 
@@ -137,8 +141,9 @@ void utils::ls(const string path, vector<throwfile_path_t>* files_path,
 
     while ((entry = readdir(directory))) {
         file_name = entry->d_name;
-        system_path = string(path + '/' + file_name);
-        dropbox_path = string(parent + '/' + root + '/' + file_name);
+
+        system_path = static_cast<string>(resolved_path) + '/' + file_name;
+        dropbox_path = parent + '/' + file_root + '/' + file_name;
 
         stat(system_path.c_str(), &entry_stat);
 
@@ -151,10 +156,9 @@ void utils::ls(const string path, vector<throwfile_path_t>* files_path,
         } else if (S_ISDIR(entry_stat.st_mode)) {
             if (file_name == ".." || file_name == ".")
                 continue;
-            ls(system_path, files_path, parent + '/' + root);
+            ls(system_path, files_path, parent + '/' + file_root);
         }
     }
 
     closedir(directory);
-//    delete resolved_path;
 }
