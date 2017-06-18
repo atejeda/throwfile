@@ -2,7 +2,6 @@
 #include <iostream>
 #include <map>
 #include <sstream>
-#include <algorithm>
 
 #include "customtypes.h"
 #include "mongoose.h"
@@ -23,23 +22,21 @@ restclient::restclient() : handler_flag(false) {
 completion_map_t restclient::request(const string url_s, const vector<string>& headers_v, const string post_s) {
     restclient::static_client = this;
 
-
     this->handler_flag = false;
 
     string headers_s;
 
-    std::for_each(headers_v.begin(), headers_v.end(), [&headers_s](const string& header) {
-        headers_s += header + "\n";
-    });
+    std::for_each(headers_v.begin(), headers_v.end(),
+                  [&headers_s](const string& header) { headers_s += header + "\n"; });
 
-    //headers_s += "\r\n";
+    // headers_s += "\r\n";
 
     const char* url = url_s.c_str();
     const char* headers = headers_s.size() ? headers_s.c_str() : nullptr;
     const char* post = post_s.size() ? post_s.c_str() : nullptr;
 
     // cout << "url    : " << url << endl;
-    cout << "headers :" << endl << headers << endl;
+    // cout << "headers :" << endl << headers << endl;
     // cout << "post   : " << post << endl;
 
     mg_connect_http(&this->connection_manager, restclient::static_handler, url, headers, post);
@@ -76,7 +73,44 @@ void restclient::static_handler(connection_t* nc, int ev, void* ev_data) {
 void restclient::handler(connection_t* nc, int ev, void* ev_data) {
     http_message_t* res = (http_message_t*)ev_data;
 
+    // sent data https://docs.cesanta.com/mongoose/master/#/http/client_example.md/
+    // struct mg_connection has void *user_data which is a placeholder for application-specific data.
+    // Mongoose does not
+    // use that pointer. Event handler can store any kind of information there.
+    // https://docs.cesanta.com/mongoose/master/#/c-api/net.h/struct_mg_connection.md/
+
+
+
     switch (ev) {
+    case MG_EV_POLL:
+        //        try {
+        //            cout << string(nc->send_mbuf.buf).size() << endl;
+        //        } catch (...) {
+        //            ;
+        //        }
+
+        try {
+            cout << *(int*)ev_data << endl;
+        } catch (...) {
+            ;
+        }
+
+        break;
+    case MG_EV_SEND: // data has been sent
+        // cout << "MG_EV_SEND " << ev << endl;
+        //        try {
+        //            cout << string(nc->send_mbuf.buf).size() << endl;
+        //        } catch (...) {
+        //            ;
+        //        }
+
+        try {
+            cout << *(int*)ev_data << endl;
+        } catch (...) {
+            ;
+        }
+
+        break;
     case MG_EV_CONNECT:
         if (*(int*)ev_data != 0) {
             cout << "connection failed, " << strerror(*(int*)ev_data) << endl;
