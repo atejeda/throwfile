@@ -40,12 +40,10 @@ completion_t tokenmgr::set_to_file(const string token) {
     return res;
 }
 
-completion_t tokenmgr::get_from_request(restclient* rest_client,
-                                        const string app_auth,
-                                        const string app_key,
+completion_t tokenmgr::get_from_request(restclient* rest_client, const string app_auth, const string app_key,
                                         const string app_secret) {
 
-    string endpoint = "https://api.dropboxapi.com/oauth2/token";
+    const string endpoint = "https://api.dropboxapi.com/oauth2/token";
 
     vector<string> headers;
     headers.push_back("Content-Type: application/x-www-form-urlencoded;");
@@ -89,6 +87,7 @@ completion_t tokenmgr::validate(restclient* rest_client, const string token) {
     headers.push_back("Authorization: Bearer " + token);
 
     string postdata;
+
     completion_map_t res = rest_client->request(endpoint, headers, postdata);
 
     completion_t completion;

@@ -2,6 +2,7 @@
 #include <iostream>
 #include <map>
 #include <sstream>
+#include <algorithm>
 
 #include "customtypes.h"
 #include "mongoose.h"
@@ -19,30 +20,29 @@ restclient::restclient() : handler_flag(false) {
     this->connection_manager = connection_manager;
 }
 
-completion_map_t restclient::request(const string url_s,
-                                     const vector<string> headers_v,
-                                     const string post_s) {
+completion_map_t restclient::request(const string url_s, const vector<string>& headers_v, const string post_s) {
     restclient::static_client = this;
+
 
     this->handler_flag = false;
 
     string headers_s;
-    for (int i = 0; i < headers_v.size(); i++) {
-        headers_s += headers_v[i];
-        if (i == headers_v.size() - 1)
-            headers_s += "\r\n";
-    }
+
+    std::for_each(headers_v.begin(), headers_v.end(), [&headers_s](const string& header) {
+        headers_s += header + "\n";
+    });
+
+    //headers_s += "\r\n";
 
     const char* url = url_s.c_str();
     const char* headers = headers_s.size() ? headers_s.c_str() : nullptr;
     const char* post = post_s.size() ? post_s.c_str() : nullptr;
 
-    //    cout << "url    : " << url << endl;
-    //    cout << "header : " << headers << endl;
-    //    cout << "post   : " << post << endl;
+    // cout << "url    : " << url << endl;
+    cout << "headers :" << endl << headers << endl;
+    // cout << "post   : " << post << endl;
 
-    mg_connect_http(&this->connection_manager, restclient::static_handler, url,
-                    headers, post);
+    mg_connect_http(&this->connection_manager, restclient::static_handler, url, headers, post);
 
     while (!this->handler_flag)
         mg_mgr_poll(&this->connection_manager, 1000);
@@ -52,7 +52,7 @@ completion_map_t restclient::request(const string url_s,
     completion_map_t res;
 
     auto resdata = this->handler_res.response;
-    //    cout << resdata << endl;
+    // cout << resdata << endl;
     map<string, string> restdict;
 
     try {

@@ -20,7 +20,7 @@ class restclient {
 
     restclient();
     restclient(const connection_manager_t&);
-    completion_map_t request(const string, const vector<string>, const string);
+    completion_map_t request(const string, const vector<string>&, const string);
     void handler(connection_t*, int, void*);
     ~restclient();
     // static

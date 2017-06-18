@@ -11,8 +11,7 @@ class tokenmgr {
     tokenmgr();
     completion_t get_from_file();
     completion_t set_to_file(const string);
-    completion_t get_from_request(restclient*, const string, const string,
-                                  const string);
+    completion_t get_from_request(restclient*, const string, const string, const string);
     completion_t validate(restclient*, const string);
     ~tokenmgr();
 };

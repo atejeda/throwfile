@@ -16,10 +16,10 @@ using namespace std;
 class utils {
   public:
     static void write_file(const string, const char*, const long);
-    static long split_file(const string, vector<const char*>**);
+    static long split_file(const string, const long, const long, vector<const char*>**);
     static map<string, string> quick_parse(const string&);
-    static void ls(const string path, vector<throwfile_path_t>*,
-                   const string p = "");
+    static void ls(const string path, vector<throwfile_path_t>*, const string p = "");
+    static string get_size_unit(const long);
 };
 
 #endif // UTILS_H

@@ -1,10 +1,16 @@
+#include <algorithm>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <vector>
+
+#include <cmath>
 
 #include "customtypes.h"
 #include "restclient.h"
 #include "tokenmgr.h"
 #include "utils.h"
+#include "uploadmgr.h"
 
 using namespace std;
 
@@ -47,8 +53,7 @@ string get_token(bool force_request = false) {
             cout << "Can't continue with no auth or token code...";
         }
 
-        completion =
-            token_mgr.get_from_request(rest_client, auth, app_key, app_secret);
+        completion = token_mgr.get_from_request(rest_client, auth, app_key, app_secret);
 
         if (completion.completion) {
             token = completion.body;
@@ -64,11 +69,10 @@ string get_token(bool force_request = false) {
     return token;
 }
 
+// TODO:
+// - validate first argument
+// - validate dropbox destination (name)
 int main(int argc, char* argv[]) {
-
-    // validate first argument
-    // resolve the path by using
-    // validate dropbox destination (name)
 
     string token;
     completion_t completion_token;
@@ -95,43 +99,47 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    const string path = argv[1]; // "/home/atejeda/Downloads";
-    vector<throwfile_path_t>* files_path = new vector<throwfile_path_t>();
+    const string path = argv[1];
+    const string destination = "/cross";
 
     cout << endl << "Listing the files, this may take a while depending ";
     cout << "how many files (recursively) the directory contains... " << endl;
 
-    utils::ls(path, files_path);
+    vector<throwfile_path_t>* files_path = new vector<throwfile_path_t>();
+    utils::ls(path, files_path, destination);
 
-    cout << endl << files_path->size() << " Files to throw:" << endl;
+    cout << endl << files_path->size() << " Files to throw (summary):" << endl;
     cout << "(symlinks ignored)" << endl << endl;
 
     long total_size = 0;
 
-    for (int i = 0; i < files_path->size(); i++) {
-        long file_size;
-        string file_size_unit;
+//    std::for_each(files_path->begin(), files_path->end(), [&total_size](const throwfile_path_t& throw_file) {
+//        cout << "from local : " << throw_file.local_path << " " << utils::get_size_unit(throw_file.file_size) << endl;
+//        cout << "to dropbox : " << throw_file.remote_path << " ";
 
-        long reported_file_size = files_path->at(i).file_size;
-        total_size += reported_file_size;
+//        vector<const char*>* file_chunks;
+//        long remaining = utils::split_file(throw_file.local_path, throw_file.file_size, _150MB, &file_chunks);
 
-        if ((file_size = reported_file_size / 1000000) > 0) {
-            file_size_unit = "MB";
-        } else if ((file_size = reported_file_size / 1000) > 0) {
-            file_size_unit = "KB";
-        } else {
-            file_size = reported_file_size;
-            file_size_unit = "B";
-        }
+//        if (file_chunks->size() > 1) {
+//            cout << file_chunks->size() << " pieces of 150MB";
+//            cout << " and one remaining of " << utils::get_size_unit(remaining) << endl;
+//        } else {
+//            cout << "1 piece of " << utils::get_size_unit(remaining) << endl;
+//        }
 
-        cout << "(" << file_size << ") " << file_size_unit << endl;
-        cout << "from local : " << files_path->at(i).system_path << endl;
-        cout << "to dropbox : " << files_path->at(i).dropbox_path << endl;
-        cout << endl;
-    }
+//        cout << endl;
 
-    // in GB, MB, KB, B
-    cout << endl << total_size / 1000000 << " MB total" << endl << endl;
+//        total_size += throw_file.file_size;
+//    });
+
+    cout << endl << utils::get_size_unit(total_size) + " total" << endl << endl;
+
+    // upload files
+
+    uploadmgr* upload_mgr = new uploadmgr();
+
+    upload_mgr->upload_file(rest_client, token, files_path->at(0));
+
 
     return EXIT_SUCCESS;
 }

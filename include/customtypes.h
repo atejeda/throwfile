@@ -8,6 +8,8 @@
 
 using namespace std;
 
+#define _150MB (1000 * 1000 * 150)
+
 // structs
 
 struct handler_response {
@@ -22,9 +24,12 @@ template <class T> struct completion {
 };
 
 struct throwfile_path {
-    string system_path;
-    string dropbox_path;
+    string local_path;
+    string remote_path;
+    string file_unit;
     long file_size;
+    long remaining;
+    int chunks;
 };
 
 // typedefs
