@@ -24,16 +24,17 @@
 
 /* c includes (c++) */
 #include <cstring>
+#include <cstdlib>
 
 /* c++ includes */
 #include <iostream>
-#include <string>
 #include <fstream>
 #include <sstream>
-#include <stdexcept>
-#include <map>
-#include <vector>
+#include <string>
 #include <iomanip>
+#include <vector>
+#include <map>
+#include <algorithm>
 
 /* other includes */
 #include <curl/curl.h>
@@ -137,12 +138,20 @@ map<string, string> quick_parse(const string& json) {
     return data;
 }
 
-void ls(const string path, vector<fpath_t>* fpaths, const string fparent) {
-    char freal[PATH_MAX + 1];
-    realpath(path.c_str(), freal);
+string real_path(string path) {
+    string home{getpwuid(getuid())->pw_dir};
+    if (path[0] == '~') path = home + path.substr(1);
+    char resolved[PATH_MAX + 1];
+    realpath(path.c_str(), resolved);
+    // check for errors
+    return static_cast<string>(resolved);
+}
+
+void ls(const string path, vector<fpath_t>& files, const string parent) {
+    const char* real_path = path.c_str();
 
     DIR* dir;
-    if ((dir = opendir(freal)) == NULL) {
+    if ((dir = opendir(real_path)) == NULL) {
         // strerror(errno)
         return;
     }
@@ -150,40 +159,37 @@ void ls(const string path, vector<fpath_t>* fpaths, const string fparent) {
     struct dirent* entry;
     struct stat entry_stat;
 
-    string lo;
-    string re;
+    string lo; // local
+    string re; // remote
 
-    string fname;
-    string froot = static_cast<string>(basename(freal));
+    string name;
+    string root = static_cast<string>(basename(real_path));
 
     while ((entry = readdir(dir))) {
-        fname = entry->d_name;
+        name = entry->d_name;
 
-        lo = static_cast<string>(freal) + '/' + fname;
-        re = fparent + '/' + froot + '/' + fname;
+        lo = static_cast<string>(real_path) + '/' + name;
+        re = parent + '/' + root + '/' + name;
 
         stat(lo.c_str(), &entry_stat);
 
         if (S_ISLNK(entry_stat.st_mode)) {
             continue;
         } else if (S_ISREG(entry_stat.st_mode)) {
-            float fsize = entry_stat.st_size;
-            fpaths->push_back(fpath_t{lo, re, static_cast<size_t>(fsize)});
+            size_t size = entry_stat.st_size;
+            files.push_back(fpath_t{lo, re, static_cast<size_t>(size)});
         } else if (S_ISDIR(entry_stat.st_mode)) {
-            if (fname == ".." || fname == ".")
+            if (name == ".." || name == ".")
                 continue;
-            ls(lo, fpaths, fparent + '/' + froot);
+            ls(lo, files, parent + '/' + root);
         }
     }
 
     closedir(dir);
 }
 
-long fsplit(const string path, const size_t size, const size_t csize, 
-    vector<const char*>** holder) {
-
-    (*holder) = new vector<const char*>();
-    auto holder_v = (*holder);
+long file_split(const string path, const size_t size, const size_t csize, 
+    vector<const char*>& holder) {
 
     ifstream file;
     file.open(path, ios::in | ios::binary); 
@@ -199,13 +205,13 @@ long fsplit(const string path, const size_t size, const size_t csize,
     const long pieces = size / csize;
     const long remain = size % csize;
 
-    holder_v->reserve(pieces + 1);
+    holder.reserve(pieces + 1);
 
     for (int i = 0; i <= pieces; i++) {
         long block_size = i < pieces ? csize : remain;
         char* block_mem = new char[block_size];
         file.read(block_mem, block_size);
-        holder_v->push_back(block_mem);
+        holder.push_back(block_mem);
     }
 
     file.close();
@@ -213,7 +219,7 @@ long fsplit(const string path, const size_t size, const size_t csize,
     return remain;
 }
 
-string funit(const size_t size) {
+string file_unit(const size_t size) {
     int file_size_temporal;
     double file_size;
     string file_size_unit;
@@ -363,14 +369,14 @@ bool oauth_token_validate(const string token, string& res) {
     curl_easy_setopt(handler, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(handler, CURLOPT_POSTFIELDS, post.c_str());
 
-    CURLcode res_curl;
-    string res_data;
-
     // perform the request
-    
-    handlerv_response.clear();
 
-    if ((res_curl =curl_easy_perform(handler)) != CURLE_OK) {
+    handlerv_response.str(string());
+
+    CURLcode res_curl;
+    string res_data;    
+
+    if ((res_curl = curl_easy_perform(handler)) != CURLE_OK) {
         // request problem, print err ?
         return false;
     } else if ((res_data = handlerv_response.str()).length() <= 0) {
@@ -405,7 +411,7 @@ bool oauth2_token_get(string& token) {
     if (oauth2_token_file_get(token))
         return true;
 
-    // ask for the auth code
+    // ask for the auth code, should be done outside this function
 
     string url = "https://www.dropbox.com/oauth2/authorize";
     url += "?client_id=" + app_key;
@@ -439,12 +445,33 @@ bool oauth2_token_get(string& token) {
 
 /* upload */
 
-bool upload(string& token, const fpath_t& file) {
-    //{"name": "acsStartContainer_javaContainer_2017-06-03_21.53.08.711", "path_lower":
-    //"/cross/tmp3/acsstartcontainer_javacontainer_2017-06-03_21.53.08.711", "path_display":
-    //"/cross/tmp3/acsStartContainer_javaContainer_2017-06-03_21.53.08.711", "id": "id:DstbCk1UZpAAAAAAAABrmg",
-    //"client_modified": "2017-06-18T08:07:23Z", "server_modified": "2017-06-18T08:07:24Z", "rev": "559550280a6a7",
-    //"size": 1552301, "content_hash": "2b4bd110227f10643095ee29893f72b9022324d0e87e90f22ccc0bceab6672a9"}
+bool upload_session_start(const string& token, const fpath_t& file) {
+    return false;
+}
+
+bool upload_session_end(const string& token, const fpath_t& file) {
+    return false;
+}
+
+bool upload_session(const string& token, const fpath_t& file) {
+    return false;
+}
+
+bool upload(const string& token, const fpath_t& file) {
+// {  
+// "name":"acsStartContainer_javaContainer_2017-06-03_21.53.08.711",
+// "path_lower":
+//   "/cross/tmp3/acsstartcontainer_javacontainer_2017-06-03_21.53.08.711",
+// "path_display":
+//    "/cross/tmp3/acsStartContainer_javaContainer_2017-06-03_21.53.08.711",
+// "id":"id:DstbCk1UZpAAAAAAAABrmg",
+// "client_modified":"2017-06-18T08:07:23Z",
+// "server_modified":"2017-06-18T08:07:24Z",
+// "rev":"559550280a6a7",
+// "size":1552301,
+// "content_hash":
+//    "2b4bd110227f10643095ee29893f72b9022324d0e87e90f22ccc0bceab6672a9"
+// }
 
     CURL* handler;
 
@@ -465,28 +492,27 @@ bool upload(string& token, const fpath_t& file) {
     string api = "Dropbox-API-Arg: ";
     api += "{\"path\":\"" + file.re;
     api += + "\", \"mode\":\"overwrite\"}";
+    headers = curl_slist_append(headers, api.c_str());
 
     // file setup
-    vector<const char*>* memblocks;
-    size_t remaining = fsplit(file.lo, file.size, _150MB, &memblocks);
+    vector<const char*> memblocks;
+    size_t remaining = file_split(file.lo, file.size, _150MB, memblocks);
 
-    const char* post = (*memblocks)[0];
-    // with ptr I get 
-    // undefined reference to `std::__throw_out_of_range_fmt(char const*, ...)'
+    const char* post = memblocks[0]; // check this with valgrind from memleaks
 
-    curl_easy_setopt(handler, CURLOPT_URL, EP_ACCOUNT);
+    curl_easy_setopt(handler, CURLOPT_URL, EP_UPLOAD);
     curl_easy_setopt(handler, CURLOPT_WRITEFUNCTION, handlerf_response);
     curl_easy_setopt(handler, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(handler, CURLOPT_POSTFIELDS, post);
 
+    // perform the request
+
+    handlerv_response.str(string());
+
     CURLcode res_curl;
     string res_data;
 
-    // perform the request
-    
-    handlerv_response.clear();
-
-    if ((res_curl =curl_easy_perform(handler)) != CURLE_OK) {
+    if ((res_curl = curl_easy_perform(handler)) != CURLE_OK) {
         // request problem, print err ?
         return false;
     } else if ((res_data = handlerv_response.str()).length() <= 0) {
@@ -517,9 +543,17 @@ bool upload(string& token, const fpath_t& file) {
     return true; 
 }
 
+bool uploader(const string& token, const fpath_t& file) {
+    return false;
+}
+
 /* main */
 
 int main(int argc, char* argv[]) {
+    string help = "";
+
+    // token validation
+
     string token;
     bool success;
     string res;
@@ -535,7 +569,18 @@ int main(int argc, char* argv[]) {
 
     cout << "Good to see you " << res << endl;
 
-    // 
+    // list files
+
+    string path = real_path("~/Desktop/tmp3");
+    
+    vector<fpath_t> files;
+    ls(path, files, "/cross");
+
+    for_each(files.begin(), files.end(), [&token](const fpath_t& file) {
+        cout << "-> upload " << file.lo << " " << file_unit(file.size) << endl;
+        cout << "   to " << file.re << endl;
+        upload(token, file);
+    });
 
     return EXIT_SUCCESS;
 }
