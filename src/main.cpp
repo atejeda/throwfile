@@ -1,11 +1,12 @@
 /* disclaimer, license and stuff */
 
-/* compiler and app define */
+/* compiler and app define's */
 /*
  gcc.gnu.org/onlinedocs/gcc-5.2.0/libstdc++/manual/manual/using_dual_abi.html
  main.cpp:(.text+0x28): undefined reference to 
  `std::__cxx11::basic_string<char, std::char_traits<char>, 
   std::allocator<char> >::basic_string()'
+ .. libcurl string compatibility
 */
 #define _GLIBCXX_USE_CXX11_ABI 0
 
@@ -65,15 +66,22 @@
 using namespace std;
 
 /* structs */
-struct fpath_t {
+struct path_t {
     string lo; // local
     string re; // remote
     size_t size;
 };
 
-/* typedef */
+struct progress_data_t {
+    double speed_sum;
+    int speed_count;
+    bool done;
+    CURL* handler;
+};
 
-typedef struct fpath_t fpath_t;
+/* typedefs */
+typedef struct path_t path_t;
+typedef struct progress_data_t progress_data_t;
 
 /* application variables */
 
@@ -83,6 +91,9 @@ const static string app_secret = "b0ucqd3w9a9tqja";
 
 // handles the responses from the handler
 static stringstream handlerv_response;
+
+// progress data
+progress_data_t progress_data;
 
 /* function declarations */
 
@@ -147,7 +158,7 @@ string real_path(string path) {
     return static_cast<string>(resolved);
 }
 
-void ls(const string path, vector<fpath_t>& files, const string parent) {
+void ls(const string path, vector<path_t>& files, const string parent) {
     const char* real_path = path.c_str();
 
     DIR* dir;
@@ -177,7 +188,7 @@ void ls(const string path, vector<fpath_t>& files, const string parent) {
             continue;
         } else if (S_ISREG(entry_stat.st_mode)) {
             size_t size = entry_stat.st_size;
-            files.push_back(fpath_t{lo, re, static_cast<size_t>(size)});
+            files.push_back(path_t{lo, re, static_cast<size_t>(size)});
         } else if (S_ISDIR(entry_stat.st_mode)) {
             if (name == ".." || name == ".")
                 continue;
@@ -219,7 +230,7 @@ long file_split(const string path, const size_t size, const size_t csize,
     return remain;
 }
 
-string file_unit(const size_t size) {
+string size_unit(const size_t size) {
     int file_size_temporal;
     double file_size;
     string file_size_unit;
@@ -240,8 +251,7 @@ string file_unit(const size_t size) {
     }
 
     stringstream output;
-    if (file_size_precision)
-        output << std::fixed << std::setprecision(2);
+    if (file_size_precision) output << std::fixed << std::setprecision(2);
     output << file_size;
     output << " ";
     output << file_size_unit;
@@ -445,34 +455,55 @@ bool oauth2_token_get(string& token) {
 
 /* upload */
 
-bool upload_session_start(const string& token, const fpath_t& file) {
+bool upload_session_start(const string& token, const path_t& file) {
     return false;
 }
 
-bool upload_session_end(const string& token, const fpath_t& file) {
+bool upload_session_end(const string& token, const path_t& file) {
     return false;
 }
 
-bool upload_session(const string& token, const fpath_t& file) {
+bool upload_session(const string& token, const path_t& file) {
     return false;
 }
 
-bool upload(const string& token, const fpath_t& file) {
-// {  
-// "name":"acsStartContainer_javaContainer_2017-06-03_21.53.08.711",
-// "path_lower":
-//   "/cross/tmp3/acsstartcontainer_javacontainer_2017-06-03_21.53.08.711",
-// "path_display":
-//    "/cross/tmp3/acsStartContainer_javaContainer_2017-06-03_21.53.08.711",
-// "id":"id:DstbCk1UZpAAAAAAAABrmg",
-// "client_modified":"2017-06-18T08:07:23Z",
-// "server_modified":"2017-06-18T08:07:24Z",
-// "rev":"559550280a6a7",
-// "size":1552301,
-// "content_hash":
-//    "2b4bd110227f10643095ee29893f72b9022324d0e87e90f22ccc0bceab6672a9"
-// }
+static int progress(void *p, double dlt, double dlu, double upt, double upn) {
+    progress_data_t* progress_data = static_cast<progress_data_t*>(p);
+    int percent = (upn/upt) * 100;
 
+    if (percent < 0 || percent > 100 || progress_data->done) return 0;
+    
+    // upload info
+    double time = 0;
+    double speed = 0;
+
+    CURL* handler = progress_data->handler;
+
+    curl_easy_getinfo(handler, CURLINFO_TOTAL_TIME, &time);
+    curl_easy_getinfo(handler, CURLINFO_SPEED_UPLOAD, &speed);
+
+    cerr << "                              \r";
+    cerr << "|progress   : " << percent << "%";
+    
+    if (percent < 100) {
+        cerr << " at " << size_unit(speed) << "/sec";
+        cerr << "\r";
+    } else {
+        double avgs = progress_data->speed_sum / progress_data->speed_count;
+        cerr << " (" << size_unit(avgs) << "/sec avg)" << endl;
+    }
+
+    cerr << std::flush;
+
+    // update struct
+    progress_data->done = percent >= 100;
+    progress_data->speed_sum += speed;
+    progress_data->speed_count++; 
+    
+    return 0;
+}
+
+bool upload(const string& token, const path_t& file) {
     CURL* handler;
 
     if (!(handler = curl_easy_init())) {
@@ -504,6 +535,17 @@ bool upload(const string& token, const fpath_t& file) {
     curl_easy_setopt(handler, CURLOPT_WRITEFUNCTION, handlerf_response);
     curl_easy_setopt(handler, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(handler, CURLOPT_POSTFIELDS, post);
+
+    // progress
+
+    progress_data.speed_sum = 0;
+    progress_data.speed_count = 0;
+    progress_data.done = false;
+    progress_data.handler = handler;
+
+    curl_easy_setopt(handler, CURLOPT_PROGRESSFUNCTION, progress);
+    curl_easy_setopt(handler, CURLOPT_PROGRESSDATA, &progress_data);
+    curl_easy_setopt(handler, CURLOPT_NOPROGRESS, 0L);
 
     // perform the request
 
@@ -543,7 +585,7 @@ bool upload(const string& token, const fpath_t& file) {
     return true; 
 }
 
-bool uploader(const string& token, const fpath_t& file) {
+bool uploader(const string& token, const path_t& file) {
     return false;
 }
 
@@ -567,20 +609,24 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    cout << "Good to see you " << res << endl;
+    cout << "+ Good to see you " << res << endl;
 
     // list files
 
     string path = real_path("~/Desktop/tmp3");
     
-    vector<fpath_t> files;
+    vector<path_t> files;
     ls(path, files, "/cross");
 
-    for_each(files.begin(), files.end(), [&token](const fpath_t& file) {
-        cout << "-> upload " << file.lo << " " << file_unit(file.size) << endl;
-        cout << "   to " << file.re << endl;
+
+    for_each(files.begin(), files.end(), [&token](const path_t& file) {
+        cout << "+" << endl;
+        cout << "|from local : " << file.lo << endl;
+        cout << "|to remote  : " << file.re << endl;
+        cout << "|size       : " << size_unit(file.size) << endl;
         upload(token, file);
     });
+    cout << "+" << endl;
 
     return EXIT_SUCCESS;
 }
