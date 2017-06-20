@@ -1,13 +1,12 @@
 /* disclaimer, license and stuff */
 
 /* compiler and app define's */
-/*
- gcc.gnu.org/onlinedocs/gcc-5.2.0/libstdc++/manual/manual/using_dual_abi.html
- main.cpp:(.text+0x28): undefined reference to 
- `std::__cxx11::basic_string<char, std::char_traits<char>, 
-  std::allocator<char> >::basic_string()'
- .. libcurl string compatibility
-*/
+
+// gcc.gnu.org/onlinedocs/gcc-5.2.0/libstdc++/manual/manual/using_dual_abi.html
+// main.cpp:(.text+0x28): undefined reference to 
+// `std::__cxx11::basic_string<char, std::char_traits<char>, 
+// std::allocator<char> >::basic_string()'
+// .. libcurl string compatibility
 #define _GLIBCXX_USE_CXX11_ABI 0
 
 /* linux includes */
@@ -26,6 +25,7 @@
 /* c includes (c++) */
 #include <cstring>
 #include <cstdlib>
+#include <ctime>
 
 /* c++ includes */
 #include <iostream>
@@ -248,6 +248,32 @@ string size_unit(const size_t size) {
     } else {
         file_size = size;
         file_size_unit = "B";
+    }
+
+    stringstream output;
+    if (file_size_precision) output << std::fixed << std::setprecision(2);
+    output << file_size;
+    output << " ";
+    output << file_size_unit;
+
+    return output.str();
+}
+
+string time_unit(const size_t size) {
+    int file_size_temporal;
+    double file_size;
+    string file_size_unit;
+    bool file_size_precision = false;
+
+    if ((file_size_temporal = (file_size = size / 3600.0)) > 0) {
+        file_size_precision = size % 3600 > 0;
+        file_size_unit = "hr";
+    } else if ((file_size_temporal = (file_size = size / 60.0)) > 0) {
+        file_size_precision = size % 60 > 0;
+        file_size_unit = "m";
+    } else {
+        file_size = size;
+        file_size_unit = "s";
     }
 
     stringstream output;
@@ -624,7 +650,16 @@ int main(int argc, char* argv[]) {
         cout << "|from local : " << file.lo << endl;
         cout << "|to remote  : " << file.re << endl;
         cout << "|size       : " << size_unit(file.size) << endl;
-        upload(token, file);
+
+        // upload and time arithmetics
+
+        time_t time_start = time(nullptr);
+        upload(token, file); // upload call
+        time_t time_end = time(nullptr);
+
+        int time_delta = difftime(time_end, time_start);
+
+        cerr << "|took       : " << time_unit(file.size) << endl;
     });
     cout << "+" << endl;
 
