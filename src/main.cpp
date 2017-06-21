@@ -21,6 +21,7 @@
 #include <string.h>
 
 /* c includes */
+#include <unistd.h>
 
 /* c includes (c++) */
 #include <cstring>
@@ -52,15 +53,15 @@
     "https://content.dropboxapi.com/2/files/upload"
 
 #define EP_UPLOAD_SESSION_START \
-    "https://content.dropboxapi.com/2/files/upload"
+    "https://content.dropboxapi.com/2/files/upload_session/start"
 
-#define EP_UPLOAD_SESSION_UPLOAD \
-    "https://content.dropboxapi.com/2/files/upload"
+#define EP_UPLOAD_SESSION_APPEND \
+    "https://content.dropboxapi.com/2/files/upload_session/append_v2"
 
-#define EP_UPLOAD_SESSION_END \
-    "https://content.dropboxapi.com/2/files/upload"
+#define EP_UPLOAD_SESSION_FINISH \
+    "https://content.dropboxapi.com/2/files/upload_session/finish"
 
-#define _150MB (1000 * 1000 * 150)
+#define _150MB (1000 * 1000 * 150) // K as 1000
 
 /* namespaces */
 using namespace std;
@@ -79,6 +80,9 @@ struct progress_data_t {
     CURL* handler;
 };
 
+/* others */
+enum session_mode { single, session_start, session_append, session_finish };
+
 /* typedefs */
 typedef struct path_t path_t;
 typedef struct progress_data_t progress_data_t;
@@ -95,7 +99,7 @@ static stringstream handlerv_response;
 // progress data
 progress_data_t progress_data;
 
-/* function declarations */
+/* functions declarations */
 
 /* handlers */
 
@@ -199,6 +203,11 @@ void ls(const string path, vector<path_t>& files, const string parent) {
     closedir(dir);
 }
 
+long file_split_sizes(const size_t size, const size_t csize, long& pieces) {
+    pieces = size / csize;
+    return size % csize;
+}
+
 long file_split(const string path, const size_t size, const size_t csize, 
     vector<const char*>& holder) {
 
@@ -213,8 +222,10 @@ long file_split(const string path, const size_t size, const size_t csize,
     //long size = file.tellg();
     //file.seekg(0, ios::beg);
 
-    const long pieces = size / csize;
-    const long remain = size % csize;
+    long pieces;
+    long remain;
+
+    remain = file_split_sizes(size, csize, pieces);
 
     holder.reserve(pieces + 1);
 
@@ -260,27 +271,26 @@ string size_unit(const size_t size) {
 }
 
 string time_unit(const size_t size) {
-    int file_size_temporal;
-    double file_size;
-    string file_size_unit;
+    int time_len_temporal;
+    double time_len;
+    string time_len_unit;
     bool file_size_precision = false;
 
-    if ((file_size_temporal = (file_size = size / 3600.0)) > 0) {
+    if ((time_len_temporal = (time_len = size / 3600.0)) > 0) {
         file_size_precision = size % 3600 > 0;
-        file_size_unit = "hr";
-    } else if ((file_size_temporal = (file_size = size / 60.0)) > 0) {
+        time_len_unit = "hr";
+    } else if ((time_len_temporal = (time_len = size / 60.0)) > 0) {
         file_size_precision = size % 60 > 0;
-        file_size_unit = "m";
+        time_len_unit = "m";
     } else {
-        file_size = size;
-        file_size_unit = "s";
+        time_len = size;
+        time_len_unit = "s";
     }
 
     stringstream output;
     if (file_size_precision) output << std::fixed << std::setprecision(2);
-    output << file_size;
-    output << " ";
-    output << file_size_unit;
+    output << time_len;
+    output << time_len_unit;
 
     return output.str();
 }
@@ -493,7 +503,7 @@ bool upload_session(const string& token, const path_t& file) {
     return false;
 }
 
-static int progress(void *p, double dlt, double dlu, double upt, double upn) {
+int progress(void *p, double dlt, double dlu, double upt, double upn) {
     progress_data_t* progress_data = static_cast<progress_data_t*>(p);
     int percent = (upn/upt) * 100;
 
@@ -529,7 +539,7 @@ static int progress(void *p, double dlt, double dlu, double upt, double upn) {
     return 0;
 }
 
-bool upload(const string& token, const path_t& file) {
+bool upload(const string& token, const path_t& file, int& took) {
     CURL* handler;
 
     if (!(handler = curl_easy_init())) {
@@ -547,20 +557,20 @@ bool upload(const string& token, const path_t& file) {
     headers = curl_slist_append(headers, octet.c_str());
 
     string api = "Dropbox-API-Arg: ";
-    api += "{\"path\":\"" + file.re;
-    api += + "\", \"mode\":\"overwrite\"}";
+    api += "{ \"path\" : \"" + file.re + "\"";
+    api += + ", \"mode\" : \"overwrite\" }";
     headers = curl_slist_append(headers, api.c_str());
 
     // file setup
     vector<const char*> memblocks;
     size_t remaining = file_split(file.lo, file.size, _150MB, memblocks);
 
-    const char* post = memblocks[0]; // check this with valgrind from memleaks
+    const char* memblock = memblocks[0]; // check this with valgrind from memleaks
 
     curl_easy_setopt(handler, CURLOPT_URL, EP_UPLOAD);
     curl_easy_setopt(handler, CURLOPT_WRITEFUNCTION, handlerf_response);
     curl_easy_setopt(handler, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(handler, CURLOPT_POSTFIELDS, post);
+    curl_easy_setopt(handler, CURLOPT_POSTFIELDS, memblock);
 
     // progress
 
@@ -580,14 +590,18 @@ bool upload(const string& token, const path_t& file) {
     CURLcode res_curl;
     string res_data;
 
+    time_t time_start = time(nullptr);
     if ((res_curl = curl_easy_perform(handler)) != CURLE_OK) {
         // request problem, print err ?
+        took = difftime(time(nullptr), time_start);
         return false;
     } else if ((res_data = handlerv_response.str()).length() <= 0) {
         // there is no data, return, print err?
         // "unknown error (1)"
+        took = difftime(time(nullptr), time_start);
         return false;
     }
+    took = difftime(time(nullptr), time_start);
 
     // parse the data
     map<string, string> dict = quick_parse(res_data);
@@ -611,14 +625,154 @@ bool upload(const string& token, const path_t& file) {
     return true; 
 }
 
-bool uploader(const string& token, const path_t& file) {
+/* upload session */
+
+// API
+
+// EP_UPLOAD_SESSION_START -----------------------------------------------------
+// params:
+// {
+//     "close": false
+// }
+// returns:
+// {
+//     "session_id": "1234faaf0678bcde"
+// }
+// errors nothing!
+
+// EP_UPLOAD_SESSION_APPEND ----------------------------------------------------
+// params:
+// {
+//     "cursor": {
+//         "session_id": "1234faaf0678bcde",
+//         "offset": 0
+//     },
+//     "close": false
+// }
+// returns nothing!
+// errors error_summary
+
+// EP_UPLOAD_SESSION_FINISH ----------------------------------------------------
+// params:
+// {
+//     "cursor": {
+//         "session_id": "1234faaf0678bcde",
+//         "offset": 0
+//     },
+//     "commit": {
+//         "path": "/Homework/math/Matrices.txt",
+//         "mode": "add",
+//         "autorename": true,
+//         "mute": false
+//     }
+// }
+// returns:
+// {
+//     "name": "Prime_Numbers.txt",
+//     "id": "id:a4ayc_80_OEAAAAAAAAAXw",
+//     "client_modified": "2015-05-12T15:50:38Z",
+//     "server_modified": "2015-05-12T15:50:38Z",
+//     "rev": "a1c10ce0dd78",
+//     "size": 7212,
+//     "path_lower": "/homework/math/prime_numbers.txt",
+//     "path_display": "/Homework/math/Prime_Numbers.txt",
+//     "sharing_info": {
+//         "read_only": true,
+//         "parent_shared_folder_id": "84528192421",
+//         "modified_by": "dbid:AAH4f99T0taONIb-OurWxbNQ6ywGRopQngc"
+//     },
+//     "property_groups": [
+//         {
+//             "template_id": "ptid:1a5n2i6d3OYEAAAAAAAAAYa",
+//             "fields": [
+//                 {
+//                     "name": "Security Policy",
+//                     "value": "Confidential"
+//                 }
+//             ]
+//         }
+//     ],
+//     "has_explicit_shared_members": false,
+//     "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+// }
+// errors: error_summary
+
+bool upload_session(const string& token, const char* memblock, int& took, 
+                    const int mode) {
+    CURL* handler;
+
+    if (!(handler = curl_easy_init())) {
+        // print err?
+        return false;
+    }
+
+    string endpoint;
+    string api = "Dropbox-API-Arg: ";
+    
+    if (mode == session_start) {
+        // session start
+        api += "";
+        endpoint = EP_UPLOAD_SESSION_START;
+    } else if (mode == session_append) {
+        // session append
+        api += "";
+        endpoint = EP_UPLOAD_SESSION_APPEND;
+    } else if (mode == session_finish) {
+        // session finish
+        api += "";
+        endpoint = EP_UPLOAD_SESSION_FINISH;
+    } else {
+        // print error
+        return false;
+    }
+
+    // headers
+    struct curl_slist* headers = nullptr;
+    
+    string bearer = "Authorization: Bearer " + token;
+    headers = curl_slist_append(headers, bearer.c_str());
+
+    string octet = "Content-Type: application/octet-stream";
+    headers = curl_slist_append(headers, octet.c_str());
+    headers = curl_slist_append(headers, api.c_str());
+    
+    curl_easy_setopt(handler, CURLOPT_URL, endpoint.c_str());
+    curl_easy_setopt(handler, CURLOPT_WRITEFUNCTION, handlerf_response);
+    curl_easy_setopt(handler, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(handler, CURLOPT_POSTFIELDS, memblock);
+
+    // progress
+
+    progress_data.speed_sum = 0;
+    progress_data.speed_count = 0;
+    progress_data.done = false;
+    progress_data.handler = handler;
+
+    curl_easy_setopt(handler, CURLOPT_PROGRESSFUNCTION, progress);
+    curl_easy_setopt(handler, CURLOPT_PROGRESSDATA, &progress_data);
+    curl_easy_setopt(handler, CURLOPT_NOPROGRESS, 0L);
+
+    return false;
+}
+
+/* uploader */
+
+bool uploader(const string& token, const path_t& file, int& took) {
+    long remain = 0;
+    long pieces = 0;
+
+    remain = file_split_sizes(file.size, _150MB, pieces);
+
     return false;
 }
 
 /* main */
 
 int main(int argc, char* argv[]) {
+    // add cmd validation
     string help = "";
+
+    // add read from file regex exception
 
     // token validation
 
@@ -635,31 +789,35 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    cout << "+ Good to see you " << res << endl;
+    cout << "Good to see you " << res << endl;
 
     // list files
 
-    string path = real_path("~/Desktop/tmp3");
+    string path = real_path("~/Documents");
     
     vector<path_t> files;
     ls(path, files, "/cross");
 
-
     for_each(files.begin(), files.end(), [&token](const path_t& file) {
+        long took = 0;
+        long remain = 0;
+        long pieces = 0;
+
+        remain = file_split_sizes(file.size, _150MB, pieces);
+
         cout << "+" << endl;
         cout << "|from local : " << file.lo << endl;
         cout << "|to remote  : " << file.re << endl;
         cout << "|size       : " << size_unit(file.size) << endl;
+        cout << "|to remote  : " << file.re << endl;
+        cout << "|other      : " << pieces << " x 150MB + ";
+        cout << size_unit(remain) << endl;
 
-        // upload and time arithmetics
 
-        time_t time_start = time(nullptr);
-        upload(token, file); // upload call
-        time_t time_end = time(nullptr);
+        
+        //upload(token, file, took);
 
-        int time_delta = difftime(time_end, time_start);
-
-        cerr << "|took       : " << time_unit(file.size) << endl;
+        cerr << "|took       : " <<  time_unit(took) << endl;
     });
     cout << "+" << endl;
 
