@@ -81,7 +81,12 @@ struct progress_data_t {
 };
 
 /* others */
-enum session_mode { single, session_start, session_append, session_finish };
+enum session_mode { 
+    single, 
+    session_start, 
+    session_append, 
+    session_finish 
+};
 
 /* typedefs */
 typedef struct path_t path_t;
