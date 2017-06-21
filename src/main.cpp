@@ -699,12 +699,6 @@ bool upload(const string& token, const path_t& file, int& took) {
 
 bool upload_session(const string& token, const char* memblock, int& took, 
                     const int mode) {
-    CURL* handler;
-
-    if (!(handler = curl_easy_init())) {
-        // print err?
-        return false;
-    }
 
     string endpoint;
     string api = "Dropbox-API-Arg: ";
@@ -723,6 +717,13 @@ bool upload_session(const string& token, const char* memblock, int& took,
         endpoint = EP_UPLOAD_SESSION_FINISH;
     } else {
         // print error
+        return false;
+    }
+
+    CURL* handler;
+
+    if (!(handler = curl_easy_init())) {
+        // print err?
         return false;
     }
 
