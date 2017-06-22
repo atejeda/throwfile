@@ -66,7 +66,7 @@
 /* namespaces */
 using namespace std;
 
-/* structs */
+/* structs, unions and enums */
 struct path_t {
     string lo; // local
     string re; // remote
@@ -80,7 +80,6 @@ struct progress_data_t {
     CURL* handler;
 };
 
-/* others */
 enum session_mode { 
     single, 
     session_start, 
@@ -89,8 +88,8 @@ enum session_mode {
 };
 
 /* typedefs */
-typedef struct path_t path_t;
-typedef struct progress_data_t progress_data_t;
+// typedef struct path_t path_t;
+// typedef struct progress_data_t progress_data_t;
 
 /* application variables */
 
@@ -103,6 +102,10 @@ static stringstream handlerv_response;
 
 // progress data
 progress_data_t progress_data;
+
+// api params 
+
+
 
 /* functions declarations */
 
@@ -298,6 +301,81 @@ string time_unit(const size_t size) {
     output << time_len_unit;
 
     return output.str();
+}
+
+/* header param setup */
+
+void session_param_start(const bool close, string& hparam) {
+    const string q = "\"";
+    stringstream out;
+    
+    out << "{"; // start
+
+    // close
+    out << q << "close" << q << ":" << std::boolalpha << close;
+
+    out << "}"; // ends
+
+    hparam = out.str();
+}
+
+void session_param_append(const string session_id, const size_t offset,
+                          const bool close, 
+                          string& hparam) {
+    const string q = "\"";
+    stringstream out;
+    
+    out << "{"; // start
+    
+    // cursor
+    out << q << "cursor" << q << ":";
+    out << "{";
+    out << q << "offset"     << q << ":"      << offset;
+    out << "}";
+
+    out << ",";
+
+    // close
+    out << q << "close" << q << ":" << std::boolalpha << close;
+
+    out << "}"; // ends
+
+    hparam = out.str();
+}
+
+void session_param_finish(const string session_id, const size_t offset, 
+                    const string path, const string mode, const bool autorename, 
+                    const bool mute, string& hparam) {
+    const string q = "\"";
+    stringstream out;
+    
+    out << "{"; // start
+    
+    // cursor
+    out << q << "cursor" << q << ":";
+    out << "{";
+    out << q << "session_id" << q << ":" << q << session_id << q;
+    out << ",";
+    out << q << "offset"     << q << ":"      << offset;
+    out << "}";
+
+    out << ",";
+
+    // commit
+    out << q << "cursor" << q << ":";
+    out << "{";
+    out << q << "path"       << q << ":" << q << path << q;
+    out << ",";
+    out << q << "mode"       << q << ":" << q << mode << q;
+    out << ",";
+    out << q << "autorename" << q << ":" << std::boolalpha << autorename;
+    out << ",";
+    out << q << "mute"       << q << ":" << std::boolalpha << mute;
+    out << "}";
+
+    out << "}"; // ends
+
+    hparam = out.str();
 }
 
 /* oauth2 */
@@ -531,9 +609,10 @@ int progress(void *p, double dlt, double dlu, double upt, double upn) {
         cerr << "\r";
     } else {
         double avgs = progress_data->speed_sum / progress_data->speed_count;
-        cerr << " (" << size_unit(avgs) << "/sec avg)" << endl;
+        cout << " (" << size_unit(avgs) << "/sec avg)" << endl;
     }
 
+    cout << std::flush;
     cerr << std::flush;
 
     // update struct
@@ -544,7 +623,7 @@ int progress(void *p, double dlt, double dlu, double upt, double upn) {
     return 0;
 }
 
-bool upload(const string& token, const path_t& file, int& took) {
+bool upload(const string& token, const path_t& file, long& took) {
     CURL* handler;
 
     if (!(handler = curl_easy_init())) {
@@ -570,7 +649,7 @@ bool upload(const string& token, const path_t& file, int& took) {
     vector<const char*> memblocks;
     size_t remaining = file_split(file.lo, file.size, _150MB, memblocks);
 
-    const char* memblock = memblocks[0]; // check this with valgrind from memleaks
+    const char* memblock = memblocks[0]; // check this with valgrind, memleaks
 
     curl_easy_setopt(handler, CURLOPT_URL, EP_UPLOAD);
     curl_easy_setopt(handler, CURLOPT_WRITEFUNCTION, handlerf_response);
@@ -698,7 +777,7 @@ bool upload(const string& token, const path_t& file, int& took) {
 //         }
 //     ],
 //     "has_explicit_shared_members": false,
-//     "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+//     "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4648901b7852b855"
 // }
 // errors: error_summary
 
@@ -772,13 +851,76 @@ bool uploader(const string& token, const path_t& file, int& took) {
     return false;
 }
 
+void display_help(bool detail = false) {
+        const string helpcmd = R"(Usage : throwfile [OPTION] path
+Upload your local files to Dropbox
+For more help, use  -h option)";
+
+    if (detail) {
+        cout << helpcmd << endl;
+        // cout << "Required:" << endl;
+        cout << "Optional:" << endl;
+        cout << "  -d      : dry run, will not upload, just verbose";
+        cout << "  -r path : remote path starts with / and ends without /, ";
+        cout << "e.g.: /remotepath, default one is /tmp/throwfile" << endl;
+        cout << "this is useful to test if this client is valid"  << endl;
+    }
+}
+
 /* main */
 
 int main(int argc, char* argv[]) {
-    // add cmd validation
-    string help = "";
+    /*    
+    -d       : dry run (optional)
+    -r <arg> : the remote folder to upload the data
+    path to process 
+    */
 
-    // add read from file regex exception
+    // options parser
+
+    // options
+    
+    string path;
+    string remote_dir = "/tmp/throwfile";
+    bool dryrun = false;
+
+    int opt = -1;
+    while ((opt = getopt(argc, argv, "hdr:")) != -1) {
+        switch(opt) {
+        case 'd':
+            dryrun = true;
+            break;
+        case 'r':
+            remote_dir = optarg;
+            if (remote_dir[0] != '/') {
+                display_help(true);
+                return EXIT_FAILURE;
+            } else if (remote_dir[remote_dir.size() - 1] == '/') {
+                display_help(true);
+                return EXIT_FAILURE;
+            }
+            break;
+        case 'h':
+            display_help(true);
+            return EXIT_SUCCESS;
+        case '?':
+            display_help();
+            return EXIT_FAILURE;
+        default:
+            display_help();
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (optind >= argc) {
+        display_help();
+        return EXIT_FAILURE;
+    }
+
+    // path, as the last option
+    path = argv[optind];
+
+    // -- end of the options section --
 
     // token validation
 
@@ -795,37 +937,45 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    cout << "Good to see you " << res << endl;
+    cerr << "Good to see you " << res << endl;
 
     // list files
-
-    string path = real_path("~/Documents");
     
     vector<path_t> files;
-    ls(path, files, "/cross");
+    ls(path, files, remote_dir);
 
-    for_each(files.begin(), files.end(), [&token](const path_t& file) {
+    for_each(files.begin(), files.end(), [&dryrun, &token](const path_t& file) {
         long took = 0;
         long remain = 0;
         long pieces = 0;
 
         remain = file_split_sizes(file.size, _150MB, pieces);
 
+        if (pieces) return;
+
         cout << "+" << endl;
         cout << "|from local : " << file.lo << endl;
         cout << "|to remote  : " << file.re << endl;
         cout << "|size       : " << size_unit(file.size) << endl;
-        cout << "|to remote  : " << file.re << endl;
         cout << "|other      : " << pieces << " x 150MB + ";
         cout << size_unit(remain) << endl;
 
+        if (!dryrun) upload(token, file, took);
 
-        
-        //upload(token, file, took);
+        cout << "|took       : " <<  time_unit(took) << endl;
 
-        cerr << "|took       : " <<  time_unit(took) << endl;
     });
     cout << "+" << endl;
 
     return EXIT_SUCCESS;
 }
+
+/*
+TODO:
+- file with regex expressions (v2)
+- just big files   (v2)
+- just small files (v2)
+- upload files
+- add total time spent as sum of all uploads
+- summary of how much will be uplodad (data size)
+*/
