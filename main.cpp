@@ -1,4 +1,54 @@
-/* disclaimer, license and stuff */
+/*
+ * A mini c++ application to send files to dropbox. 
+ * -----------------------------------------------------------------------------
+ *
+ *            DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+ *                    Version 2, December 2004
+ *
+ * Copyright (C) 2017 Alexis Tejeda
+ *
+ * Everyone is permitted to copy and distribute verbatim or modified
+ * copies of this license document, and changing it is allowed as long
+ * as the name is changed.
+ *
+ *            DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+ *   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
+ *
+ *  0. You just DO WHAT THE FUCK YOU WANT TO.
+ *
+ * -----------------------------------------------------------------------------
+ * 
+ * Thirdparty:
+ * 
+ * This application uses licurl to do all the post and other things related to
+ * networking, interested in libcurl liecense? go ahead and take a look
+ * https://curl.haxx.se/docs/copyright.html
+ * 
+ * Dropbox policies, take a look to the developers dropbox site 
+ * https://www.dropbox.com/developers/reference/tos
+ * 
+ * -----------------------------------------------------------------------------
+ *
+ * Disclaimer:
+ * 
+ * This is not an official dropbox application, it only uses the dropbox API,
+ * OAuth2 workflow provided by dropbox is used to authenticate the application
+ * using a token to do all the dropbox interaction later.
+ * 
+ */
+
+/*
+TODO:
+- file with regex expressions (v2)
+- just big files   (v2)
+- just small files (v2)
+- upload files
+- add total time spent as sum of all uploads
+- summary of how much will be uplodad (data size)
+- register errors
+*/
+
+// -------------------------------------------------------------------------- //
 
 /* compiler and app define's */
 
@@ -972,13 +1022,4 @@ int main(int argc, char* argv[]) {
     return EXIT_SUCCESS;
 }
 
-/*
-TODO:
-- file with regex expressions (v2)
-- just big files   (v2)
-- just small files (v2)
-- upload files
-- add total time spent as sum of all uploads
-- summary of how much will be uplodad (data size)
-- register errors
-*/
+// -------------------------------------------------------------------------- //
