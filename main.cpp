@@ -48,6 +48,10 @@ TODO:
 - register errors
 */
 
+/*
+- https://curl.haxx.se/lxr/source/docs/examples/debug.c
+*/
+
 // -------------------------------------------------------------------------- //
 
 /* compiler and app define's */
@@ -111,7 +115,7 @@ TODO:
 #define EP_UPLOAD_SESSION_FINISH \
     "https://content.dropboxapi.com/2/files/upload_session/finish"
 
-#define CKSIZE (1024 * 1024 * 150) // K as 1024, 150 MB
+#define p_size (1024 * 1024 * 3) // K as 1024, 150 MB
 
 /* namespaces */
 using namespace std;
@@ -510,21 +514,24 @@ bool oauth2_token_remote_get(string& token, const string app_auth) {
     bool istoken = dict.find("access_token") != dict.end();
     bool iserror = dict.find("error_description") != dict.end();
 
+    bool success = false;
+
     if (istoken) {
         token = dict["access_token"];
-        return true;
+        success = true;
     } else if (iserror) {
         //dict["error_description"];
-        return false;
+        success =  false;
     } else {
         //"unknown error (2)"
-        return false;
+        success =  false;
     }
 
-    // clean up the handler and return
+    // clean up the headers, handler and return
+    curl_slist_free_all(headers);
     curl_easy_cleanup(handler);
 
-    return false; 
+    return success; 
 }
 
 bool oauth_token_validate(const string token, string& res) {
@@ -545,6 +552,7 @@ bool oauth_token_validate(const string token, string& res) {
     curl_easy_setopt(handler, CURLOPT_URL, EP_ACCOUNT);
     curl_easy_setopt(handler, CURLOPT_WRITEFUNCTION, handlerf_response);
     curl_easy_setopt(handler, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(handler, CURLOPT_CUSTOMREQUEST, "POST");
     curl_easy_setopt(handler, CURLOPT_POSTFIELDS, post.c_str());
 
     // perform the request
@@ -569,20 +577,24 @@ bool oauth_token_validate(const string token, string& res) {
     bool istoken = dict.find("display_name") != dict.end();
     bool iserror = dict.find("error_description") != dict.end();
 
+    bool success = false;
+
     if (istoken) {
         res = dict["display_name"];
+        success = true;
     } else if (iserror) {
         //dict["error_description"];
-        return false;
+        success = false;
     } else {
         //"unknown error (2)"
-        return false;
+        success = false;
     }
 
-    // clean up the handler and return
+    // clean up the headers, handler and return
+    curl_slist_free_all(headers);
     curl_easy_cleanup(handler);
 
-    return true; 
+    return success; 
 }
 
 bool oauth2_token_get(string& token) {
@@ -659,7 +671,8 @@ int progress(void *p, double dlt, double dlu, double upt, double upn) {
     return 0;
 }
 
-bool upload(const string& token, const path_t& file, long& took) {
+bool upload(const string& token, const path_t& file, const char*& memblock, 
+            const size_t size, long& took) {
     CURL* handler;
 
     if (!(handler = curl_easy_init())) {
@@ -681,16 +694,12 @@ bool upload(const string& token, const path_t& file, long& took) {
     api += + ", \"mode\" : \"overwrite\" }";
     headers = curl_slist_append(headers, api.c_str());
 
-    // file setup
-    vector<const char*> blocks;
-    size_t remaining = file_split(file.lo, file.size, CKSIZE, blocks);
-
-    const char* block = blocks[0]; // check this with valgrind, memleaks
-
     curl_easy_setopt(handler, CURLOPT_URL, EP_UPLOAD);
     curl_easy_setopt(handler, CURLOPT_WRITEFUNCTION, handlerf_response);
     curl_easy_setopt(handler, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(handler, CURLOPT_POSTFIELDS, block);
+    curl_easy_setopt(handler, CURLOPT_CUSTOMREQUEST, "POST");
+    curl_easy_setopt(handler, CURLOPT_POSTFIELDSIZE, size);
+    curl_easy_setopt(handler, CURLOPT_POSTFIELDS, memblock);
 
     // progress
 
@@ -708,7 +717,7 @@ bool upload(const string& token, const path_t& file, long& took) {
     handlerv_response.str(string());
 
     CURLcode res_curl;
-    string res_data = "nodata";
+    string res_data;
 
     time_t time_start = time(nullptr);
     if ((res_curl = curl_easy_perform(handler)) != CURLE_OK) {
@@ -726,30 +735,34 @@ bool upload(const string& token, const path_t& file, long& took) {
     // parse the data
     map<string, string> dict = quick_parse(res_data);
 
-    bool istoken = dict.find("display_name") != dict.end();
+    bool isvalid = dict.find("display_name") != dict.end();
     bool iserror = dict.find("error_description") != dict.end();
 
-    if (istoken) {
+    bool success = false;
+
+    if (isvalid) {
         // res = dict["display_name"];
+        success = true;
     } else if (iserror) {
         //dict["error_description"];
-        return false;
+        success = false;
     } else {
         //"unknown error (2)"
-        return false;
+        success = false;
     }
 
-    // clean up the handler and return
+    // clean up the headers, handler and return
+    curl_slist_free_all(headers);
     curl_easy_cleanup(handler);
 
-    return false; 
+    return success; 
 }
 
 /* upload session */
 
-bool upload_session(const string& token, string& session, const char* block, 
-                    const size_t offset, long& took, const path_t& file, 
-                    const int mode) {
+bool upload_session(const string& token, string& session, const char*& memblock, 
+                    const size_t offset, const size_t size, long& took, 
+                    const path_t& file, const int mode) {
     string endpoint;
     string api = "Dropbox-API-Arg: ";
     string par;
@@ -797,8 +810,10 @@ bool upload_session(const string& token, string& session, const char* block,
     curl_easy_setopt(handler, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(handler, CURLOPT_CUSTOMREQUEST, "POST");
 
-    if (block)
-        curl_easy_setopt(handler, CURLOPT_POSTFIELDS, block);
+    if (memblock) {
+        curl_easy_setopt(handler, CURLOPT_POSTFIELDSIZE, size);
+        curl_easy_setopt(handler, CURLOPT_POSTFIELDS, memblock);
+    }
 
     // progress
 
@@ -831,17 +846,17 @@ bool upload_session(const string& token, string& session, const char* block,
     }
     took = difftime(time(nullptr), time_start);
 
-    cout << res_data << endl;
-
     // parse the data
     map<string, string> dict = quick_parse(res_data);
+
+    bool success = false;
 
     // session start
     {
         bool iserror;
         if ((iserror = dict.find("session_id") != dict.end()))
             session = dict["session_id"];
-        return iserror; // true, when no errors
+        success = iserror; // true, when no errors
     }
 
     // session append
@@ -849,7 +864,7 @@ bool upload_session(const string& token, string& session, const char* block,
         bool iserror;
         if ((iserror = dict.find("error_summary") != dict.end()))
             ;// register error        
-        return !iserror; // true, when no errors
+        success = !iserror; // true, when no errors
     }
 
     // session finish
@@ -857,52 +872,68 @@ bool upload_session(const string& token, string& session, const char* block,
         bool iserror;
         if ((iserror = dict.find("error_summary") != dict.end()))
             ;// register error        
-        return !iserror; // true, when no errors
+        success = !iserror; // true, when no errors
     }
 
-    // clean up the handler and return
+    // clean up the headers, handler and return
+    curl_slist_free_all(headers);
     curl_easy_cleanup(handler);
 
-    return false;
+    return success;
 }
 
 /* uploader */
 
 bool uploader(const string& token, const path_t& file, long& took) {
-    vector<const char*> memblocks;
-    size_t remaining = file_split(file.lo, file.size, CKSIZE, memblocks);
-
-    // single file upload, up to 150, 
-    if (memblocks.size() == 1) return upload(token, file, took);
     
-    // session file upload, chunks of 150MB, 1K = 1024
+    vector<const char*> memblocks;
+    size_t remaining = file_split(file.lo, file.size, p_size, memblocks);
+    size_t pieces = memblocks.size();
 
-    string session;
+    // single file upload
+
+    if (pieces == 1) { 
+        bool success = upload(token, file, memblocks[0], remaining, took);
+        //delete memblocks[0];
+        return success;
+    }
+
+    // session file upload, chunks of 150MB, 1K = 1024
+    // start an empty session
+    // append data
+    // free the data
+    // ends the session
+
+    string session;    // session id
     size_t offset = 0; // last offset
-    long ttook; // temporal time holder
-    char* nodata = nullptr;
+    long tmpt = 0;     // temporal time holder
+    const char* nodata = nullptr;
 
     // reset the chunk progress
     progress_data.chunk_total = memblocks.size();
     progress_data.chunk_current = 0;
 
-    // start session
-    upload_session(token, session, nodata, 0, ttook, file, session_start);
-    took += ttook;
-
+    // if return on false, cancel this trasnfer and register the problem
+    // start nodata
+    upload_session(token, session, nodata, 0, -1, tmpt, file, session_start);
+    took += tmpt;
+    
     // session append
-    for (int i = 0; i < memblocks.size(); i++) {
+    for (int i = 0; i < pieces; i++) {
         progress_data.chunk_current++;
-        upload_session(token, session, memblocks[i], offset, ttook, file, 
-                       session_append);
-        took += ttook;
-        offset += (i == memblocks.size() - 1 && remaining ? remaining : CKSIZE);  
+        size_t size = (i == pieces - 1 && remaining ? remaining : p_size);
+        upload_session(token, session, memblocks[i], offset, size, tmpt, file, 
+                      session_append);
+        delete[] memblocks[i];
+        took += tmpt;
+        offset += size;  
     }
+    
+    upload_session(token, session, nodata, offset, -1, tmpt, file, 
+                   session_finish);
+    took += tmpt;
 
-    upload_session(token, session, nodata, offset, ttook, file, session_finish);
-    took += ttook;
-
-    return false;
+    return true;
 }
 
 void display_help(bool detail = false) {
@@ -1005,13 +1036,13 @@ int main(int argc, char* argv[]) {
         long remain = 0;
         long pieces = 0;
 
-        remain = file_split_sizes(file.size, CKSIZE, pieces);
+        remain = file_split_sizes(file.size, p_size, pieces);
 
         cout << "+" << endl;
         cout << "|from local : " << file.lo << endl;
         cout << "|to remote  : " << file.re << endl;
         cout << "|size       : " << size_unit(file.size) << endl;
-        cout << "|other      : " << pieces << " x " << size_unit(CKSIZE);
+        cout << "|other      : " << pieces << " x " << size_unit(p_size);
         cout << " + " << size_unit(remain) << endl;
 
         if (!dryrun) uploader(token, file, took);
