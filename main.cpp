@@ -489,7 +489,7 @@ bool oauth2_token_remote_get(string& token, const string app_auth) {
     curl_easy_setopt(handler, CURLOPT_POSTFIELDS, post.c_str());
 
     CURLcode res_curl;
-    string res_data;
+    string res_data = "nodata";
 
     // perform the request
     
@@ -512,6 +512,7 @@ bool oauth2_token_remote_get(string& token, const string app_auth) {
 
     if (istoken) {
         token = dict["access_token"];
+        return true;
     } else if (iserror) {
         //dict["error_description"];
         return false;
