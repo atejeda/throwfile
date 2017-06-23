@@ -554,10 +554,8 @@ bool oauth2_token_get(string& token) {
     cout << "Paste the auth code here : ";
     cin >> auth_input;
 
-    if (auth_input.empty()) {
-        // error cout << "can't continue with no auth or token code..." << endl;
-        return false;
-    }
+    if (auth_input.empty())
+        return false; // register error
 
     // perform the request
 
@@ -831,13 +829,14 @@ bool uploader(const string& token, const path_t& file, long& took) {
     string session;
     size_t offset = 0; // last offset
     long ttook; // temporal time holder
+    char* nodata = nullptr;
 
     // reset the chunk progress
     progress_data.chunk_total = memblocks.size();
     progress_data.chunk_current = 0;
 
     // start session
-    upload_session(token, session, nullptr, 0, ttook, file, session_start);
+    upload_session(token, session, nodata, 0, ttook, file, session_start);
     took += ttook;
 
     // session append
@@ -849,13 +848,7 @@ bool uploader(const string& token, const path_t& file, long& took) {
         offset += (i == memblocks.size() - 1 && remaining ? remaining : CKSIZE);  
     }
 
-    // for_each(blocks.begin(), blocks.end(), 
-    // [&token, &session, &file, &ttime, &took, &off](const char*& block) {
-    // });
-
-    // end session
-    //offset += remaining;
-    upload_session(token, session, nullptr, offset, ttook, file, session_finish);
+    upload_session(token, session, nodata, offset, ttook, file, session_finish);
     took += ttook;
 
     return false;
