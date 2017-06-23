@@ -1,4 +1,4 @@
-SOURCES    =  main.cpp
+SOURCES    = main.cpp
 LIBRARIES  = $(shell curl-config --libs)
 CXXFLAGS   = $(shell curl-config --cflags) -Wno-comment
 CXXFLAGS  += -Wno-deprecated-declarations -std=c++11

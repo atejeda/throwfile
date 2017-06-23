@@ -61,12 +61,13 @@
 #define EP_UPLOAD_SESSION_FINISH \
     "https://content.dropboxapi.com/2/files/upload_session/finish"
 
-#define _150MB (1000 * 1000 * 150) // K as 1000
+#define CKSIZE (1024 * 1024 * 150) // K as 1024, 150 MB
 
 /* namespaces */
 using namespace std;
 
 /* structs, unions and enums */
+
 struct path_t {
     string lo; // local
     string re; // remote
@@ -76,6 +77,8 @@ struct path_t {
 struct progress_data_t {
     double speed_sum;
     int speed_count;
+    int chunk_total;
+    int chunk_current;
     bool done;
     CURL* handler;
 };
@@ -88,6 +91,7 @@ enum session_mode {
 };
 
 /* typedefs */
+
 // typedef struct path_t path_t;
 // typedef struct progress_data_t progress_data_t;
 
@@ -102,10 +106,6 @@ static stringstream handlerv_response;
 
 // progress data
 progress_data_t progress_data;
-
-// api params 
-
-
 
 /* functions declarations */
 
@@ -175,8 +175,7 @@ void ls(const string path, vector<path_t>& files, const string parent) {
 
     DIR* dir;
     if ((dir = opendir(real_path)) == NULL) {
-        // strerror(errno)
-        return;
+        //strerror(errno);
     }
 
     struct dirent* entry;
@@ -239,9 +238,9 @@ long file_split(const string path, const size_t size, const size_t csize,
 
     for (int i = 0; i <= pieces; i++) {
         long block_size = i < pieces ? csize : remain;
-        char* block_mem = new char[block_size];
-        file.read(block_mem, block_size);
-        holder.push_back(block_mem);
+        char* block = new char[block_size];
+        file.read(block, block_size);
+        holder.push_back(block);
     }
 
     file.close();
@@ -305,7 +304,7 @@ string time_unit(const size_t size) {
 
 /* header param setup */
 
-void session_param_start(const bool close, string& hparam) {
+void session_param_start(const bool close, string& str) {
     const string q = "\"";
     stringstream out;
     
@@ -316,12 +315,11 @@ void session_param_start(const bool close, string& hparam) {
 
     out << "}"; // ends
 
-    hparam = out.str();
+    str = out.str();
 }
 
-void session_param_append(const string session_id, const size_t offset,
-                          const bool close, 
-                          string& hparam) {
+void session_param_append(const string session, const size_t offset,
+                          const bool close, string& str) {
     const string q = "\"";
     stringstream out;
     
@@ -330,7 +328,9 @@ void session_param_append(const string session_id, const size_t offset,
     // cursor
     out << q << "cursor" << q << ":";
     out << "{";
-    out << q << "offset"     << q << ":"      << offset;
+    out << q << "session_id" << q << ":" << q << session << q;
+    out << ",";
+    out << q << "offset" << q << ":" << offset;
     out << "}";
 
     out << ",";
@@ -340,12 +340,12 @@ void session_param_append(const string session_id, const size_t offset,
 
     out << "}"; // ends
 
-    hparam = out.str();
+    str = out.str();
 }
 
-void session_param_finish(const string session_id, const size_t offset, 
+void session_param_finish(const string session, const size_t offset, 
                     const string path, const string mode, const bool autorename, 
-                    const bool mute, string& hparam) {
+                    const bool mute, string& str) {
     const string q = "\"";
     stringstream out;
     
@@ -354,7 +354,7 @@ void session_param_finish(const string session_id, const size_t offset,
     // cursor
     out << q << "cursor" << q << ":";
     out << "{";
-    out << q << "session_id" << q << ":" << q << session_id << q;
+    out << q << "session_id" << q << ":" << q << session << q;
     out << ",";
     out << q << "offset"     << q << ":"      << offset;
     out << "}";
@@ -362,7 +362,7 @@ void session_param_finish(const string session_id, const size_t offset,
     out << ",";
 
     // commit
-    out << q << "cursor" << q << ":";
+    out << q << "commit" << q << ":";
     out << "{";
     out << q << "path"       << q << ":" << q << path << q;
     out << ",";
@@ -375,7 +375,7 @@ void session_param_finish(const string session_id, const size_t offset,
 
     out << "}"; // ends
 
-    hparam = out.str();
+    str = out.str();
 }
 
 /* oauth2 */
@@ -470,12 +470,10 @@ bool oauth2_token_remote_get(string& token, const string app_auth) {
         return false;
     }
 
-    // cout << "resdata: \n" << res_data << endl;
-
     // clean up the handler and return
     curl_easy_cleanup(handler);
 
-    return true; 
+    return false; 
 }
 
 bool oauth_token_validate(const string token, string& res) {
@@ -574,18 +572,6 @@ bool oauth2_token_get(string& token) {
 
 /* upload */
 
-bool upload_session_start(const string& token, const path_t& file) {
-    return false;
-}
-
-bool upload_session_end(const string& token, const path_t& file) {
-    return false;
-}
-
-bool upload_session(const string& token, const path_t& file) {
-    return false;
-}
-
 int progress(void *p, double dlt, double dlu, double upt, double upn) {
     progress_data_t* progress_data = static_cast<progress_data_t*>(p);
     int percent = (upn/upt) * 100;
@@ -602,7 +588,8 @@ int progress(void *p, double dlt, double dlu, double upt, double upn) {
     curl_easy_getinfo(handler, CURLINFO_SPEED_UPLOAD, &speed);
 
     cerr << "                              \r";
-    cerr << "|progress   : " << percent << "%";
+    cerr << "|progress   : " << progress_data->chunk_current;
+    cerr << " of " << progress_data->chunk_total << " " <<  percent << "%";
     
     if (percent < 100) {
         cerr << " at " << size_unit(speed) << "/sec";
@@ -646,15 +633,15 @@ bool upload(const string& token, const path_t& file, long& took) {
     headers = curl_slist_append(headers, api.c_str());
 
     // file setup
-    vector<const char*> memblocks;
-    size_t remaining = file_split(file.lo, file.size, _150MB, memblocks);
+    vector<const char*> blocks;
+    size_t remaining = file_split(file.lo, file.size, CKSIZE, blocks);
 
-    const char* memblock = memblocks[0]; // check this with valgrind, memleaks
+    const char* block = blocks[0]; // check this with valgrind, memleaks
 
     curl_easy_setopt(handler, CURLOPT_URL, EP_UPLOAD);
     curl_easy_setopt(handler, CURLOPT_WRITEFUNCTION, handlerf_response);
     curl_easy_setopt(handler, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(handler, CURLOPT_POSTFIELDS, memblock);
+    curl_easy_setopt(handler, CURLOPT_POSTFIELDS, block);
 
     // progress
 
@@ -672,7 +659,7 @@ bool upload(const string& token, const path_t& file, long& took) {
     handlerv_response.str(string());
 
     CURLcode res_curl;
-    string res_data;
+    string res_data = "nodata";
 
     time_t time_start = time(nullptr);
     if ((res_curl = curl_easy_perform(handler)) != CURLE_OK) {
@@ -706,98 +693,33 @@ bool upload(const string& token, const path_t& file, long& took) {
     // clean up the handler and return
     curl_easy_cleanup(handler);
 
-    return true; 
+    return false; 
 }
 
 /* upload session */
 
-// API
-
-// EP_UPLOAD_SESSION_START -----------------------------------------------------
-// params:
-// {
-//     "close": false
-// }
-// returns:
-// {
-//     "session_id": "1234faaf0678bcde"
-// }
-// errors nothing!
-
-// EP_UPLOAD_SESSION_APPEND ----------------------------------------------------
-// params:
-// {
-//     "cursor": {
-//         "session_id": "1234faaf0678bcde",
-//         "offset": 0
-//     },
-//     "close": false
-// }
-// returns nothing!
-// errors error_summary
-
-// EP_UPLOAD_SESSION_FINISH ----------------------------------------------------
-// params:
-// {
-//     "cursor": {
-//         "session_id": "1234faaf0678bcde",
-//         "offset": 0
-//     },
-//     "commit": {
-//         "path": "/Homework/math/Matrices.txt",
-//         "mode": "add",
-//         "autorename": true,
-//         "mute": false
-//     }
-// }
-// returns:
-// {
-//     "name": "Prime_Numbers.txt",
-//     "id": "id:a4ayc_80_OEAAAAAAAAAXw",
-//     "client_modified": "2015-05-12T15:50:38Z",
-//     "server_modified": "2015-05-12T15:50:38Z",
-//     "rev": "a1c10ce0dd78",
-//     "size": 7212,
-//     "path_lower": "/homework/math/prime_numbers.txt",
-//     "path_display": "/Homework/math/Prime_Numbers.txt",
-//     "sharing_info": {
-//         "read_only": true,
-//         "parent_shared_folder_id": "84528192421",
-//         "modified_by": "dbid:AAH4f99T0taONIb-OurWxbNQ6ywGRopQngc"
-//     },
-//     "property_groups": [
-//         {
-//             "template_id": "ptid:1a5n2i6d3OYEAAAAAAAAAYa",
-//             "fields": [
-//                 {
-//                     "name": "Security Policy",
-//                     "value": "Confidential"
-//                 }
-//             ]
-//         }
-//     ],
-//     "has_explicit_shared_members": false,
-//     "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4648901b7852b855"
-// }
-// errors: error_summary
-
-bool upload_session(const string& token, const char* memblock, int& took, 
+bool upload_session(const string& token, string& session, const char* block, 
+                    const size_t offset, long& took, const path_t& file, 
                     const int mode) {
-
     string endpoint;
     string api = "Dropbox-API-Arg: ";
+    string par;
     
     if (mode == session_start) {
         // session start
-        api += "";
+        session_param_start(false, par);
+        api += par;
         endpoint = EP_UPLOAD_SESSION_START;
     } else if (mode == session_append) {
         // session append
-        api += "";
+        session_param_append(session, offset, false, par);
+        api += par;
         endpoint = EP_UPLOAD_SESSION_APPEND;
     } else if (mode == session_finish) {
         // session finish
-        api += "";
+        const string dmode = "overwrite"; // add
+        session_param_finish(session, offset, file.re, dmode, true, false, par);
+        api += par;
         endpoint = EP_UPLOAD_SESSION_FINISH;
     } else {
         // print error
@@ -824,7 +746,10 @@ bool upload_session(const string& token, const char* memblock, int& took,
     curl_easy_setopt(handler, CURLOPT_URL, endpoint.c_str());
     curl_easy_setopt(handler, CURLOPT_WRITEFUNCTION, handlerf_response);
     curl_easy_setopt(handler, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(handler, CURLOPT_POSTFIELDS, memblock);
+    curl_easy_setopt(handler, CURLOPT_CUSTOMREQUEST, "POST");
+
+    if (block)
+        curl_easy_setopt(handler, CURLOPT_POSTFIELDS, block);
 
     // progress
 
@@ -837,16 +762,101 @@ bool upload_session(const string& token, const char* memblock, int& took,
     curl_easy_setopt(handler, CURLOPT_PROGRESSDATA, &progress_data);
     curl_easy_setopt(handler, CURLOPT_NOPROGRESS, 0L);
 
+    // perform the request
+
+    handlerv_response.str(string());
+
+    CURLcode res_curl;
+    string res_data = "nodata";
+
+    time_t time_start = time(nullptr);
+    if ((res_curl = curl_easy_perform(handler)) != CURLE_OK) {
+        // request problem, print err ?
+        took = difftime(time(nullptr), time_start);
+        return false;
+    } else if ((res_data = handlerv_response.str()).length() <= 0) {
+        // there is no data, return, print err?
+        // "unknown error (1)"
+        took = difftime(time(nullptr), time_start);
+        return false;
+    }
+    took = difftime(time(nullptr), time_start);
+
+    cout << res_data << endl;
+
+    // parse the data
+    map<string, string> dict = quick_parse(res_data);
+
+    // session start
+    {
+        bool iserror;
+        if ((iserror = dict.find("session_id") != dict.end()))
+            session = dict["session_id"];
+        return iserror; // true, when no errors
+    }
+
+    // session append
+    {
+        bool iserror;
+        if ((iserror = dict.find("error_summary") != dict.end()))
+            ;// register error        
+        return !iserror; // true, when no errors
+    }
+
+    // session finish
+    {
+        bool iserror;
+        if ((iserror = dict.find("error_summary") != dict.end()))
+            ;// register error        
+        return !iserror; // true, when no errors
+    }
+
+    // clean up the handler and return
+    curl_easy_cleanup(handler);
+
     return false;
 }
 
 /* uploader */
 
-bool uploader(const string& token, const path_t& file, int& took) {
-    long remain = 0;
-    long pieces = 0;
+bool uploader(const string& token, const path_t& file, long& took) {
+    vector<const char*> memblocks;
+    size_t remaining = file_split(file.lo, file.size, CKSIZE, memblocks);
 
-    remain = file_split_sizes(file.size, _150MB, pieces);
+    // single file upload, up to 150, 
+    if (memblocks.size() == 1) return upload(token, file, took);
+    
+    // session file upload, chunks of 150MB, 1K = 1024
+
+    string session;
+    size_t offset = 0; // last offset
+    long ttook; // temporal time holder
+
+    // reset the chunk progress
+    progress_data.chunk_total = memblocks.size();
+    progress_data.chunk_current = 0;
+
+    // start session
+    upload_session(token, session, nullptr, 0, ttook, file, session_start);
+    took += ttook;
+
+    // session append
+    for (int i = 0; i < memblocks.size(); i++) {
+        progress_data.chunk_current++;
+        upload_session(token, session, memblocks[i], offset, ttook, file, 
+                       session_append);
+        took += ttook;
+        offset += (i == memblocks.size() - 1 && remaining ? remaining : CKSIZE);  
+    }
+
+    // for_each(blocks.begin(), blocks.end(), 
+    // [&token, &session, &file, &ttime, &took, &off](const char*& block) {
+    // });
+
+    // end session
+    //offset += remaining;
+    upload_session(token, session, nullptr, offset, ttook, file, session_finish);
+    took += ttook;
 
     return false;
 }
@@ -919,6 +929,8 @@ int main(int argc, char* argv[]) {
 
     // path, as the last option
     path = argv[optind];
+    while (path[path.size() - 1] == '/' && path.size() > 1) 
+        path = path.substr(0, path.size() - 1); 
 
     // -- end of the options section --
 
@@ -949,19 +961,16 @@ int main(int argc, char* argv[]) {
         long remain = 0;
         long pieces = 0;
 
-        remain = file_split_sizes(file.size, _150MB, pieces);
-
-        if (pieces) return;
+        remain = file_split_sizes(file.size, CKSIZE, pieces);
 
         cout << "+" << endl;
         cout << "|from local : " << file.lo << endl;
         cout << "|to remote  : " << file.re << endl;
         cout << "|size       : " << size_unit(file.size) << endl;
-        cout << "|other      : " << pieces << " x 150MB + ";
-        cout << size_unit(remain) << endl;
+        cout << "|other      : " << pieces << " x " << size_unit(CKSIZE);
+        cout << " + " << size_unit(remain) << endl;
 
-        if (!dryrun) upload(token, file, took);
-
+        if (!dryrun) uploader(token, file, took);
         cout << "|took       : " <<  time_unit(took) << endl;
 
     });
@@ -978,4 +987,5 @@ TODO:
 - upload files
 - add total time spent as sum of all uploads
 - summary of how much will be uplodad (data size)
+- register errors
 */
