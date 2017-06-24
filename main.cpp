@@ -115,17 +115,24 @@ TODO:
 #define EP_UPLOAD_SESSION_FINISH \
     "https://content.dropboxapi.com/2/files/upload_session/finish"
 
-#define p_size (1024 * 1024 * 3) // K as 1024, 150 MB
+#define p_size (1024 * 1024 * 5) // K as 1024, 150 MB
 
 /* namespaces */
 using namespace std;
 
 /* structs, unions and enums */
 
+struct path_piece_t {
+    size_t pos;
+    size_t len;
+};
+
 struct path_t {
     string lo; // local
     string re; // remote
     size_t size;
+    size_t remain;
+    vector<path_piece_t> pieces;
 };
 
 struct progress_data_t {
@@ -142,6 +149,12 @@ enum session_mode {
     session_start, 
     session_append, 
     session_finish 
+};
+
+enum file_action { 
+    CFOPEN = 1 << 0,
+    CFREAD = 1 << 1,
+    CFCLOSE = 1 << 2
 };
 
 /* typedefs */
@@ -176,6 +189,13 @@ size_t handlerf_response(void* buffer, size_t size, size_t nmemb, void* userp) {
     }
 
     return realsize;
+}
+
+/* handlers utils */
+
+void free_curl(CURL*& handler, struct curl_slist*& headers) {
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(handler);
 }
 
 /* utils */
@@ -264,9 +284,9 @@ void ls(const string path, vector<path_t>& files, const string parent) {
     closedir(dir);
 }
 
-long file_split_sizes(const size_t size, const size_t csize, long& pieces) {
-    pieces = size / csize;
-    return size % csize;
+size_t file_split_sizes(const size_t size, const size_t psize, size_t& pieces) {
+    pieces = size / psize;
+    return size % psize;
 }
 
 long file_split(const string path, const size_t size, const size_t csize, 
@@ -283,8 +303,8 @@ long file_split(const string path, const size_t size, const size_t csize,
     //long size = file.tellg();
     //file.seekg(0, ios::beg);
 
-    long pieces;
-    long remain;
+    size_t pieces;
+    size_t remain;
 
     remain = file_split_sizes(size, csize, pieces);
 
@@ -300,6 +320,34 @@ long file_split(const string path, const size_t size, const size_t csize,
     file.close();
 
     return remain;
+}
+
+size_t file_split_init(path_t& file, const size_t psize) {
+    size_t pieces;
+    size_t remain = file_split_sizes(file.size, psize, pieces);
+
+    size_t prev = 0;
+    for (int i = 0; i <= pieces; i++) {
+        size_t curr = i < pieces ? psize : remain;
+        file.pieces.push_back(path_piece_t{prev, curr});
+        prev += curr;
+    }
+
+    return remain;
+}
+
+bool file_split_read(const path_t& file, const path_piece_t& piece, 
+    char*& data, ifstream& ifs, const int flag = CFREAD) {
+
+    if (flag & CFOPEN) ifs.open(file.lo, ios::in | ios::binary); 
+
+    if (flag & CFREAD) {
+        ifs.seekg(piece.pos);
+        data = new char[piece.len];
+        ifs.read(data, piece.len);
+    }
+
+    if (flag & CFCLOSE) ifs.close();
 }
 
 string size_unit(const size_t size) {
@@ -502,9 +550,11 @@ bool oauth2_token_remote_get(string& token, const string app_auth) {
     if ((res_curl =curl_easy_perform(handler)) != CURLE_OK) {
         // request problem, print err ?
         return false;
+        free_curl(handler, headers);
     } else if ((res_data = handlerv_response.str()).length() <= 0) {
         // there is no data, return, print err?
         // "unknown error (1)"
+        free_curl(handler, headers);
         return false;
     }
 
@@ -528,8 +578,7 @@ bool oauth2_token_remote_get(string& token, const string app_auth) {
     }
 
     // clean up the headers, handler and return
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(handler);
+    free_curl(handler, headers);
 
     return success; 
 }
@@ -565,9 +614,11 @@ bool oauth_token_validate(const string token, string& res) {
     if ((res_curl = curl_easy_perform(handler)) != CURLE_OK) {
         // request problem, print err ?
         return false;
+        free_curl(handler, headers);
     } else if ((res_data = handlerv_response.str()).length() <= 0) {
         // there is no data, return, print err?
         // "unknown error (1)"
+        free_curl(handler, headers);
         return false;
     }
 
@@ -591,8 +642,7 @@ bool oauth_token_validate(const string token, string& res) {
     }
 
     // clean up the headers, handler and return
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(handler);
+    free_curl(handler, headers);
 
     return success; 
 }
@@ -672,7 +722,7 @@ int progress(void *p, double dlt, double dlu, double upt, double upn) {
 }
 
 bool upload(const string& token, const path_t& file, const char*& memblock, 
-            const size_t size, long& took) {
+            const size_t size, size_t& took) {
     CURL* handler;
 
     if (!(handler = curl_easy_init())) {
@@ -722,11 +772,13 @@ bool upload(const string& token, const path_t& file, const char*& memblock,
     time_t time_start = time(nullptr);
     if ((res_curl = curl_easy_perform(handler)) != CURLE_OK) {
         // request problem, print err ?
+        free_curl(handler, headers);
         took = difftime(time(nullptr), time_start);
         return false;
     } else if ((res_data = handlerv_response.str()).length() <= 0) {
         // there is no data, return, print err?
         // "unknown error (1)"
+        free_curl(handler, headers);
         took = difftime(time(nullptr), time_start);
         return false;
     }
@@ -752,8 +804,7 @@ bool upload(const string& token, const path_t& file, const char*& memblock,
     }
 
     // clean up the headers, handler and return
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(handler);
+    free_curl(handler, headers);
 
     return success; 
 }
@@ -837,11 +888,13 @@ bool upload_session(const string& token, string& session, const char*& memblock,
     if ((res_curl = curl_easy_perform(handler)) != CURLE_OK) {
         // request problem, print err ?
         took = difftime(time(nullptr), time_start);
+        free_curl(handler, headers);
         return false;
     } else if ((res_data = handlerv_response.str()).length() <= 0) {
         // there is no data, return, print err?
         // "unknown error (1)"
         took = difftime(time(nullptr), time_start);
+        free_curl(handler, headers);
         return false;
     }
     took = difftime(time(nullptr), time_start);
@@ -876,25 +929,30 @@ bool upload_session(const string& token, string& session, const char*& memblock,
     }
 
     // clean up the headers, handler and return
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(handler);
+    free_curl(handler, headers);
 
     return success;
 }
 
 /* uploader */
 
-bool uploader(const string& token, const path_t& file, long& took) {
+bool uploader(const string& token, const path_t& file, size_t& took) {
+
+    // initialize split info in path_t
+    file_split_init(const_cast<path_t&>(file), p_size);
     
-    vector<const char*> memblocks;
-    size_t remaining = file_split(file.lo, file.size, p_size, memblocks);
-    size_t pieces = memblocks.size();
+    size_t remaining = file.remain;
+    size_t pieces = file.pieces.size();
 
     // single file upload
 
-    if (pieces == 1) { 
-        bool success = upload(token, file, memblocks[0], remaining, took);
-        //delete memblocks[0];
+    if (pieces == 1) {
+        ifstream ifs;
+        char* data = nullptr;
+        file_split_read(file, file.pieces[0], data, ifs, CFOPEN | CFCLOSE);
+        bool success = upload(token, file, const_cast<const char*&>(data), 
+                              remaining, took);
+        delete[] data;
         return success;
     }
 
@@ -910,28 +968,86 @@ bool uploader(const string& token, const path_t& file, long& took) {
     const char* nodata = nullptr;
 
     // reset the chunk progress
-    progress_data.chunk_total = memblocks.size();
+    progress_data.chunk_total = pieces;
     progress_data.chunk_current = 0;
 
-    // if return on false, cancel this trasnfer and register the problem
-    // start nodata
-    upload_session(token, session, nodata, 0, -1, tmpt, file, session_start);
-    took += tmpt;
-    
-    // session append
+    // // if return on false, cancel this trasnfer and register the problem
+    // // start nodata
+    // upload_session(token, session, nodata, 0, -1, tmpt, file, session_start);
+    // took += tmpt;
+
+    ifstream ifs;
     for (int i = 0; i < pieces; i++) {
-        progress_data.chunk_current++;
+        file_action flag = CFREAD;
+
+        if (i == 0) {
+            flag = CFOPEN;
+        } else if (i == pieces - 1) {
+            flag = CFCLOSE;
+        }
+        
+        char* data = nullptr;
+        file_split_read(file, file.pieces[i], data, ifs, flag);
+
         size_t size = (i == pieces - 1 && remaining ? remaining : p_size);
-        upload_session(token, session, memblocks[i], offset, size, tmpt, file, 
-                      session_append);
-        delete[] memblocks[i];
+        upload_session(token, session, const_cast<const char*&>(data), 
+                       offset, size, tmpt, file, session_append);
+        delete[] data;
+
+        progress_data.chunk_current++;
+
         took += tmpt;
-        offset += size;  
-    }
+        offset += size;
+
+        
+    } 
+
+    // vector<const char*> memblocks;
+    // size_t remaining = file_split(file.lo, file.size, p_size, memblocks);
+    // size_t pieces = memblocks.size();
+
+    // // single file upload
+
+    // if (pieces == 1) { 
+    //     bool success = upload(token, file, memblocks[0], remaining, took);
+    //     //delete memblocks[0];
+    //     return success;
+    // }
+
+    // // session file upload, chunks of 150MB, 1K = 1024
+    // // start an empty session
+    // // append data
+    // // free the data
+    // // ends the session
+
+    // string session;    // session id
+    // size_t offset = 0; // last offset
+    // long tmpt = 0;     // temporal time holder
+    // const char* nodata = nullptr;
+
+    // // reset the chunk progress
+    // progress_data.chunk_total = memblocks.size();
+    // progress_data.chunk_current = 0;
+
+    // // if return on false, cancel this trasnfer and register the problem
+    // // start nodata
+    // upload_session(token, session, nodata, 0, -1, tmpt, file, session_start);
+    // took += tmpt;
     
-    upload_session(token, session, nodata, offset, -1, tmpt, file, 
-                   session_finish);
-    took += tmpt;
+    // // session append
+    // for (int i = 0; i < pieces; i++) {
+    //     progress_data.chunk_current++;
+    //     size_t size = (i == pieces - 1 && remaining ? remaining : p_size);
+    //     upload_session(token, session, memblocks[i], offset, size, tmpt, file, 
+    //                   session_append);
+    //     delete[] memblocks[i];
+    //     took += tmpt;
+    //     offset += size;  
+    // }
+    
+    // upload_session(token, session, nodata, offset, -1, tmpt, file, 
+    //                session_finish);
+    // took += tmpt;
 
     return true;
 }
@@ -1032,9 +1148,9 @@ int main(int argc, char* argv[]) {
     ls(path, files, remote_dir);
 
     for_each(files.begin(), files.end(), [&dryrun, &token](const path_t& file) {
-        long took = 0;
-        long remain = 0;
-        long pieces = 0;
+        size_t took = 0;
+        size_t remain = 0;
+        size_t pieces = 0;
 
         remain = file_split_sizes(file.size, p_size, pieces);
 
