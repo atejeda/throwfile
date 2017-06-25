@@ -115,7 +115,7 @@ TODO:
 #define EP_UPLOAD_SESSION_FINISH \
     "https://content.dropboxapi.com/2/files/upload_session/finish"
 
-#define p_size (1024 * 1024 * 2) // K as 1024, 150 MB
+#define p_size (1024 * 1024 * 100) // K as 1024, 150 MB
 
 /* namespaces */
 using namespace std;
@@ -326,7 +326,7 @@ size_t file_split_init(path_t& file, const size_t psize) {
     size_t pieces;
     size_t remain = file_split_sizes(file.size, psize, pieces);
 
-    size_t prev = -1;
+    size_t prev = 0;
     for (int i = 0; i <= pieces; i++) {
         size_t curr = i < pieces ? psize : remain;
         file.pieces.push_back(path_piece_t{prev, curr});
@@ -959,10 +959,10 @@ bool uploader(const string& token, const path_t& file, size_t& took) {
     }
 
     // session file upload, chunks of 150MB, 1K = 1024
-    // start an empty session
-    // append data
-    // free the data
-    // ends the session
+    // 1. start an empty session
+    // 2. append data
+    // 3. free the data
+    // 4. ends the session
 
     string session;               // session id
     size_t offset = 0;            // last offset
@@ -986,6 +986,8 @@ bool uploader(const string& token, const path_t& file, size_t& took) {
             flag = CFOPEN | CFREAD;
         } else if (i == pieces - 1) {
             flag = CFREAD | CFCLOSE;
+        } else {
+            flag = CFREAD;
         }
 
         char* data = nullptr;
