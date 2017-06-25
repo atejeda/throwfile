@@ -46,6 +46,9 @@ TODO:
 - add total time spent as sum of all uploads
 - summary of how much will be uplodad (data size)
 - register errors
+- total files
+- total time
+- rename some variables
 */
 
 /*
@@ -542,7 +545,7 @@ bool oauth2_token_remote_get(string& token, const string app_auth) {
     curl_easy_setopt(handler, CURLOPT_POSTFIELDS, post.c_str());
 
     CURLcode res_curl;
-    string res_data = "nodata";
+    string res_data;
 
     // perform the request
     
@@ -945,9 +948,15 @@ bool uploader(const string& token, const path_t& file, size_t& took) {
     size_t remaining = file.remain;
     size_t pieces = file.pieces.size();
 
+    // reset the chunk progress
+    progress_data.chunk_total = pieces;
+    progress_data.chunk_current = 0;
+
     // single file upload
 
     if (pieces == 1) {
+        progress_data.chunk_current++;
+        
         ifstream ifs;
         char* data = nullptr;
         file_split_read(file, file.pieces[0], data, ifs, 
@@ -968,10 +977,6 @@ bool uploader(const string& token, const path_t& file, size_t& took) {
     size_t offset = 0;            // last offset
     long tmpt = 0;                // temporal time holder
     const char* nodata = nullptr; // a helper nullptr
-
-    // reset the chunk progress
-    progress_data.chunk_total = pieces;
-    progress_data.chunk_current = 0;
 
     // if return on false, cancel this trasnfer and register the problem
     upload_session(token, session, nodata, 0, -1, tmpt, file, session_start);
